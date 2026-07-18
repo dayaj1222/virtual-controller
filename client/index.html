@@ -48,6 +48,7 @@
     content:'';position:absolute;right:2px;bottom:2px;width:20px;height:20px;
     background:var(--accent);border-radius:3px;opacity:.5;touch-action:none;z-index:5
   }
+  .gamepad.edit-mode{background-image:linear-gradient(rgba(137,180,250,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(137,180,250,.08) 1px,transparent 1px);background-size:5% 5%}
 
   /* ---- Top floating buttons ---- */
   #top-pill{
@@ -218,6 +219,7 @@
     <div class="setting-row"><label>Deadzone</label><input type="range" id="cfg-deadzone" min="0" max="50" value="8"><span class="val" id="cfg-deadzone-v">0.08</span></div>
     <div class="setting-row"><label>Flush (ms)</label><input type="range" id="cfg-flush" min="2" max="32" value="8"><span class="val" id="cfg-flush-v">8</span></div>
     <div class="setting-row"><label>Trigger</label><input type="range" id="cfg-trigger" min="50" max="100" value="100"><span class="val" id="cfg-trigger-v">1.0</span></div>
+    <div class="setting-row"><label>Grid</label><input type="range" id="cfg-grid" min="1" max="10" value="5"><span class="val" id="cfg-grid-v">5%</span></div>
     <div class="setting-row"><label>Server</label><input type="text" id="cfg-addr" value=":9449"></div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <div style="font-size:.65rem;color:var(--subtext);flex:1">Saved to server config</div>
@@ -298,7 +300,7 @@ document.getElementById('fullscreen-btn').onclick=()=>{
   }).catch(()=>{});
 };
 
-// ---- Send ------------------------------------------------------------------
+// ---- Send, keyboard helpers -------------------------------------------------
 function send(type,code,value){
   if(!ws||ws.readyState!==WebSocket.OPEN)return;
   ws.send(JSON.stringify({type,code,value}));
@@ -306,34 +308,65 @@ function send(type,code,value){
 function keyDown(c){send('key',c,1)}
 function keyUp(c){send('key',c,0)}
 
-// ---- Buttons ---------------------------------------------------------------
-document.querySelectorAll('[data-code]').forEach(el=>{
-  const c=el.dataset.code;
-  el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();el.classList.add('active');keyDown(c)});
-  el.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();el.classList.remove('active');keyUp(c)});
-  el.addEventListener('touchcancel',()=>{if(isEditing)return;el.classList.remove('active');keyUp(c)});
-  el.addEventListener('mousedown',()=>{el.classList.add('active');keyDown(c)});
-  el.addEventListener('mouseup',()=>{el.classList.remove('active');keyUp(c)});
+// ---- Unified control input + edit drag/resize -----------------------------
+// Each .ctrl wrapper handles BOTH game input AND edit drag/resize.
+// No separate touch handlers on inner elements to avoid conflicts.
+let isEditing=false;
+const gamepad=document.getElementById('gamepad');
+
+document.querySelectorAll('.ctrl').forEach(el=>{
+  el.addEventListener('touchstart',e=>{
+    if(isEditing){
+      e.preventDefault();
+      const t=e.changedTouches[0],rect=el.getBoundingClientRect();
+      const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
+      const gp=el.parentElement.getBoundingClientRect();
+      if(cx>rect.width-20&&cy>rect.height-20){
+        el._edit={mode:'resize',sx:t.clientX,sy:t.clientY,gw:gp.width,gh:gp.height,
+          ow:(currentLayout[el.dataset.id]||{}).w||10,oh:(currentLayout[el.dataset.id]||{}).h||10};
+      }else{
+        el._edit={mode:'drag',sx:t.clientX,sy:t.clientY,gw:gp.width,gh:gp.height};
+      }
+    }else{
+      e.preventDefault();
+      const btn=el.querySelector('[data-code]');
+      if(btn){btn.classList.add('active');keyDown(btn.dataset.code)}
+    }
+  },{passive:false});
+
+  el.addEventListener('touchmove',e=>{
+    if(!el._edit)return;
+    e.preventDefault();
+    const t=e.changedTouches[0],pos=currentLayout[el.dataset.id];
+    if(!pos)return;
+    if(el._edit.mode==='resize'){
+      pos.w=Math.max(5,Math.min(90,el._edit.ow+(t.clientX-el._edit.sx)/el._edit.gw*100));
+      pos.h=Math.max(5,Math.min(90,el._edit.oh+(t.clientY-el._edit.sy)/el._edit.gh*100));
+    }else{
+      pos.x=Math.max(0,Math.min(100-pos.w,(pos.x||0)+(t.clientX-el._edit.sx)/el._edit.gw*100));
+      pos.y=Math.max(0,Math.min(100-pos.h,(pos.y||0)+(t.clientY-el._edit.sy)/el._edit.gh*100));
+      el._edit.sx=t.clientX;el._edit.sy=t.clientY;
+    }
+    applyLayout(currentLayout);
+  },{passive:false});
+
+  el.addEventListener('touchend',e=>{
+    if(el._edit){
+      const pos=currentLayout[el.dataset.id];
+      if(pos){
+        if(el._edit.mode==='resize'){pos.w=snap(pos.w);pos.h=snap(pos.h)}
+        else{pos.x=snap(pos.x);pos.y=snap(pos.y)}
+        applyLayout(currentLayout);
+      }
+      el._edit=null;return
+    }
+    const btn=el.querySelector('[data-code]');
+    if(btn){btn.classList.remove('active');keyUp(btn.dataset.code)}
+  });
+  el.addEventListener('touchcancel',()=>{el._edit=null;const btn=el.querySelector('[data-code]');if(btn)btn.classList.remove('active')});
 });
 
-// ---- Triggers --------------------------------------------------------------
-function setupTrigger(eId,fId,code){
-  const el=document.getElementById(eId),fill=document.getElementById(fId);
-  let activeId=null;
-  function upd(cy){
-    const r=el.getBoundingClientRect();
-    const v=Math.max(0,Math.min(1,1-(cy-r.top)/r.height));
-    fill.style.height=(v*100)+'%';send('abs',code,v);
-  }
-  el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();activeId=e.changedTouches[0].identifier;upd(e.changedTouches[0].clientY)});
-  el.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientY);break}}});
-  el.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();for(let t of e.changedTouches){if(t.identifier===activeId){activeId=null;upd(0);break}}});
-  el.addEventListener('touchcancel',()=>{if(isEditing)return;activeId=null;upd(0)});
-}
-setupTrigger('trg-l','trg-l-fill','LT');
-setupTrigger('trg-r','trg-r-fill','RT');
-
-// ---- Sticks ----------------------------------------------------------------
+// ---- Sticks (analog tracking, separate from button logic) ------------------
 function setupStick(bId,kId,ax,ay){
   const base=document.getElementById(bId),knob=document.getElementById(kId);
   let activeId=null;
@@ -352,6 +385,23 @@ function setupStick(bId,kId,ax,ay){
 }
 setupStick('st-l','st-l-k','LX','LY');
 setupStick('st-r','st-r-k','RX','RY');
+
+// ---- Triggers (analog tracking, separate) ----------------------------------
+function setupTrigger(eId,fId,code){
+  const el=document.getElementById(eId),fill=document.getElementById(fId);
+  let activeId=null;
+  function upd(cy){
+    const r=el.getBoundingClientRect();
+    fill.style.height=(Math.max(0,Math.min(1,1-(cy-r.top)/r.height))*100)+'%';
+    send('abs',code,Math.max(0,Math.min(1,1-(cy-r.top)/r.height)));
+  }
+  el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();activeId=e.changedTouches[0].identifier;upd(e.changedTouches[0].clientY)});
+  el.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientY);break}}});
+  el.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();for(let t of e.changedTouches){if(t.identifier===activeId){activeId=null;upd(0);break}}});
+  el.addEventListener('touchcancel',()=>{if(isEditing)return;activeId=null;upd(0)});
+}
+setupTrigger('trg-l','trg-l-fill','LT');
+setupTrigger('trg-r','trg-r-fill','RT');
 
 // ---- Keyboard --------------------------------------------------------------
 const keyMap={
@@ -386,14 +436,19 @@ const defaultLayout={
 let currentLayout={};
 let GRID=5;
 
+function setGrid(n){
+  GRID=n;
+  document.getElementById('gamepad').style.backgroundSize=n+'% '+n+'%';
+}
+
+function snap(v){return Math.round(v/GRID)*GRID}
+
 function applyLayout(layout){
   for(const[id,pos]of Object.entries(layout)){
-    if(id==='_grid')continue;
+    if(id[0]==='_')continue;
     const el=document.querySelector(`[data-id="${id}"]`);
     if(!el)continue;
-    // Backward compat: `size` → w/h
-    const w=pos.w||pos.size||10;
-    const h=pos.h||pos.size||10;
+    const w=pos.w||pos.size||10,h=pos.h||pos.size||10;
     el.style.left=pos.x+'%';el.style.top=(pos.y||0)+'%';
     el.style.width=w+'%';el.style.height=h+'%';
   }
@@ -403,20 +458,15 @@ function loadLayout(){
   fetch('/api/layout').then(r=>r.json()).then(data=>{
     if(data&&Object.keys(data).length>0){
       currentLayout=data;
+      if(data._grid)setGrid(data._grid);
     }else{
       currentLayout=Object.assign({},defaultLayout);
     }
     applyLayout(currentLayout);
-  }).catch(()=>{
-    currentLayout=Object.assign({},defaultLayout);
-    applyLayout(currentLayout);
-  });
+  }).catch(()=>{currentLayout=Object.assign({},defaultLayout);applyLayout(currentLayout)});
 }
 
 // ---- Edit mode -------------------------------------------------------------
-const gamepad=document.getElementById('gamepad');
-let isEditing=false;
-
 document.getElementById('edit-btn').onclick=()=>{
   isEditing=!isEditing;
   gamepad.classList.toggle('edit-mode',isEditing);
@@ -434,99 +484,6 @@ document.getElementById('edit-save').onclick=()=>{
     .catch(()=>{});
 };
 
-// ---- Snapping --------------------------------------------------------------
-function snap(v){return Math.round(v/GRID)*GRID}
-
-// ---- Drag to move ----------------------------------------------------------
-// Corner radius for resize vs drag detection (fixed px so small buttons drag easily)
-const CORNER=20;
-
-let dragTarget=null,dragId=null;
-document.addEventListener('touchstart',e=>{
-  if(!isEditing)return;
-  const ctrl=e.target.closest('.ctrl');
-  if(!ctrl||ctrl.closest('#top-pill')||ctrl.closest('#edit-bar'))return;
-  // Bottom-right CORNER px = resize zone; rest = drag zone
-  const rect=ctrl.getBoundingClientRect();
-  const t=e.changedTouches[0];
-  const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
-  if(cx>rect.width-CORNER&&cy>rect.height-CORNER)return;
-  dragTarget=ctrl;dragId=dragTarget.dataset.id;
-  dragTarget._sx=t.clientX;dragTarget._sy=t.clientY;
-  const gp=dragTarget.parentElement.getBoundingClientRect();
-  dragTarget._gpr={w:gp.width,h:gp.height};
-},{passive:true});
-
-document.addEventListener('touchmove',e=>{
-  if(!dragTarget||!isEditing)return;
-  e.preventDefault();
-  const t=e.changedTouches[0];
-  const dx=(t.clientX-dragTarget._sx)/dragTarget._gpr.w*100;
-  const dy=(t.clientY-dragTarget._sy)/dragTarget._gpr.h*100;
-  const pos=currentLayout[dragId];
-  if(!pos)return;
-  pos.x=Math.max(0,Math.min(100-pos.w,pos.x+dx));
-  pos.y=Math.max(0,Math.min(100-pos.h,pos.y+dy));
-  dragTarget._sx=t.clientX;dragTarget._sy=t.clientY;
-  applyLayout(currentLayout);
-},{passive:false});
-
-// Snap CENTER to grid on release
-function snapCenter(pos){
-  const cx=pos.x+pos.w/2,cy=pos.y+pos.h/2;
-  pos.x=Math.max(0,Math.min(100-pos.w,snap(cx)-pos.w/2));
-  pos.y=Math.max(0,Math.min(100-pos.h,snap(cy)-pos.h/2));
-}
-
-document.addEventListener('touchend',()=>{
-  if(!dragTarget||!isEditing)return;
-  const pos=currentLayout[dragId];
-  if(pos)snapCenter(pos);
-  applyLayout(currentLayout);
-  dragTarget=null;dragId=null;
-});
-document.addEventListener('touchcancel',()=>{dragTarget=null;dragId=null});
-
-// ---- Resize ----------------------------------------------------------------
-let resizeTarget=null,resizeId=null;
-document.addEventListener('touchstart',e=>{
-  if(!isEditing)return;
-  const ctrl=e.target.closest('.ctrl');
-  if(!ctrl)return;
-  const rect=ctrl.getBoundingClientRect();
-  const t=e.changedTouches[0];
-  const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
-  if(cx<rect.width-CORNER||cy<rect.height-CORNER)return;
-  resizeTarget=ctrl;resizeId=ctrl.dataset.id;
-  resizeTarget._sx=t.clientX;resizeTarget._sy=t.clientY;
-  resizeTarget._ow=currentLayout[resizeId].w;
-  resizeTarget._oh=currentLayout[resizeId].h;
-  const gp=ctrl.parentElement.getBoundingClientRect();
-  resizeTarget._gpr={w:gp.width,h:gp.height};
-  e.preventDefault();
-},{passive:true});
-
-document.addEventListener('touchmove',e=>{
-  if(!resizeTarget||!isEditing)return;
-  e.preventDefault();
-  const t=e.changedTouches[0];
-  const dx=(t.clientX-resizeTarget._sx)/resizeTarget._gpr.w*100;
-  const dy=(t.clientY-resizeTarget._sy)/resizeTarget._gpr.h*100;
-  const p=currentLayout[resizeId];
-  if(!p)return;
-  p.w=Math.max(5,Math.min(90,p.w+dx));
-  p.h=Math.max(5,Math.min(90,p.h+dy));
-  resizeTarget._sx=t.clientX;resizeTarget._sy=t.clientY;
-  applyLayout(currentLayout);
-},{passive:false});
-document.addEventListener('touchend',()=>{
-  if(!resizeTarget||!isEditing)return;
-  const p=currentLayout[resizeId];
-  if(p){p.w=snap(p.w);p.h=snap(p.h);applyLayout(currentLayout)}
-  resizeTarget=null;resizeId=null;
-});
-document.addEventListener('touchcancel',()=>{resizeTarget=null;resizeId=null});
-
 // ---- Settings --------------------------------------------------------------
 const cfgOverlay=document.getElementById('settings-overlay');
 function loadConfig(){
@@ -538,6 +495,8 @@ function loadConfig(){
     document.getElementById('cfg-trigger').value=Math.round(cfg.trigger_threshold*100);
     document.getElementById('cfg-trigger-v').textContent=cfg.trigger_threshold.toFixed(1);
     document.getElementById('cfg-addr').value=cfg.listen;
+    document.getElementById('cfg-grid').value=GRID;
+    document.getElementById('cfg-grid-v').textContent=GRID+'%';
   }).catch(()=>{});
 }
 document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
@@ -546,19 +505,27 @@ document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
     if(el.id==='cfg-deadzone')v.textContent=(el.value/100).toFixed(2);
     else if(el.id==='cfg-flush')v.textContent=el.value;
     else if(el.id==='cfg-trigger')v.textContent=(el.value/100).toFixed(1);
+    else if(el.id==='cfg-grid'){v.textContent=el.value+'%';setGrid(parseInt(el.value))}
   });
 });
 document.getElementById('settings-btn').onclick=()=>{loadConfig();cfgOverlay.classList.add('open')};
 document.getElementById('settings-close').onclick=()=>cfgOverlay.classList.remove('open');
 document.getElementById('settings-save').onclick=()=>{
+  // Save server config
   fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     stick_deadzone:parseFloat(document.getElementById('cfg-deadzone').value)/100,
     flush_interval_ms:parseInt(document.getElementById('cfg-flush').value),
     trigger_threshold:parseFloat(document.getElementById('cfg-trigger').value)/100,
     listen:document.getElementById('cfg-addr').value,
-  })}).then(r=>r.json()).then(r=>{if(r.status==='saved')cfgOverlay.classList.remove('open')}).catch(()=>{});
+  })}).then(r=>r.json()).then(r=>{
+    if(r.status==='saved'){
+      // Save grid to layout.json
+      currentLayout._grid=parseInt(document.getElementById('cfg-grid').value);
+      fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)}).catch(()=>{});
+      cfgOverlay.classList.remove('open');
+    }
+  }).catch(()=>{});
 };
-// Reset layout button
 document.getElementById('cfg-reset-layout').onclick=()=>{
   currentLayout=Object.assign({},defaultLayout);
   applyLayout(currentLayout);
