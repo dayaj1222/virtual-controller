@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<title>Gamepad</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#1e1e2e;--surface:#313244;--surface2:#45475a;--text:#cdd6f4;
+    --subtext:#a6adc8;--accent:#89b4fa;--green:#a6e3a1;--red:#f38ba8;--yellow:#f9e2af
+  }
+  html,body{width:100%;height:100%;background:var(--bg);color:var(--text);overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+  body{display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}
+
+  /* ---- Connect / info overlay ---- */
+  #info-overlay{
+    position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:1rem;background:var(--bg);z-index:100;padding:1.5rem;text-align:center
+  }
+  #info-overlay h1{font-size:1.3rem}
+  #info-overlay .sub{color:var(--subtext);font-size:.85rem;max-width:280px;line-height:1.4}
+  #info-overlay .ip{color:var(--accent);font-size:.9rem;font-weight:600}
+  #info-overlay input{
+    background:var(--surface);border:1px solid var(--surface2);border-radius:8px;
+    padding:10px 14px;color:var(--text);font-size:1rem;width:220px;text-align:center
+  }
+  #info-overlay button{
+    background:var(--accent);border:none;border-radius:8px;padding:10px 28px;
+    color:var(--bg);font-weight:600;font-size:1rem;cursor:pointer
+  }
+  #info-overlay button:disabled{opacity:.4}
+  #status{font-size:.8rem;color:var(--subtext)}
+  #status.error{color:var(--red)}
+  .rotate-hint{font-size:.8rem;color:var(--yellow);margin-top:8px;display:none}
+  .rotate-hint.show{display:block}
+
+  /* ---- Gamepad ---- */
+  .gamepad{
+    position:relative;width:100%;height:100%;display:none
+  }
+  .gamepad.show{display:block}
+  .gamepad.edit-mode .ctrl{border:1px dashed var(--accent);background:rgba(137,180,250,.08);border-radius:8px}
+  .gamepad.edit-mode .ctrl::after{
+    content:'';position:absolute;right:2px;bottom:2px;width:20px;height:20px;
+    background:var(--accent);border-radius:3px;opacity:.5;touch-action:none;z-index:5
+  }
+
+  /* ---- Top floating buttons ---- */
+  #top-pill{
+    position:absolute;top:4px;left:50%;transform:translateX(-50%);z-index:20;
+    display:flex;gap:3px;padding:2px 6px;border-radius:12px;
+    background:rgba(49,50,68,.35);backdrop-filter:blur(4px);
+    -webkit-backdrop-filter:blur(4px)
+  }
+  .top-btn{
+    border:none;border-radius:8px;padding:2px 8px;font-size:.6rem;
+    color:var(--text);opacity:.5;background:transparent;cursor:pointer;line-height:1.7
+  }
+  .top-btn:active,.top-btn.active{opacity:1;background:rgba(137,180,250,.25);color:var(--accent)}
+
+  /* Control wrappers */
+  .ctrl{position:absolute;touch-action:none}
+  .ctrl-inner{width:100%;height:100%;position:relative}
+
+  /* Shoulder / trigger */
+  .shl{
+    background:var(--surface);border:1px solid var(--surface2);border-radius:6px;
+    width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:.65rem;font-weight:600;transition:background .05s
+  }
+  .shl:active,.shl.active{background:var(--accent);color:var(--bg)}
+  .trg{
+    background:var(--surface);border:1px solid var(--surface2);border-radius:6px;
+    width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:.6rem;position:relative;overflow:hidden
+  }
+  .trg-fill{position:absolute;bottom:0;left:0;right:0;background:var(--accent);height:0%;opacity:.4}
+  .trg-lbl{position:relative;z-index:1}
+
+  /* Sticks */
+  .stick-base{
+    width:100%;height:100%;background:var(--surface);
+    border:2px solid var(--surface2);border-radius:50%;position:relative
+  }
+  .stick-knob{
+    position:absolute;width:38%;height:38%;background:var(--accent);
+    border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none
+  }
+
+  /* Generic button filling its wrapper */
+  .btn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;transition:background .05s;touch-action:none}
+  .btn:active,.btn.active{filter:brightness(1.4)}
+
+  /* D-pad directions */
+  .btn.dir{background:var(--surface);border:2px solid var(--surface2);border-radius:6px;font-size:1rem;color:var(--subtext)}
+  .btn.dir:active,.btn.dir.active{background:var(--accent);color:var(--bg)}
+
+  /* Face buttons */
+  .btn.fc{border-radius:50%;border:2px solid var(--surface2);font-weight:700;font-size:.8rem;width:100%;height:100%}
+  .btn.fc:active,.btn.fc.active{filter:brightness(1.5)}
+  .btn.fa{background:var(--green);color:#000}
+  .btn.fb{background:var(--red);color:#000}
+  .btn.fx{background:var(--accent);color:#000}
+  .btn.fy{background:var(--yellow);color:#000}
+
+  /* Menu */
+  .m-btn{
+    background:var(--surface);border:1px solid var(--surface2);border-radius:4px;
+    width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:.55rem;color:var(--subtext);transition:background .05s
+  }
+  .m-btn:active,.m-btn.active{background:var(--accent);color:var(--bg)}
+
+
+  /* ---- Aspect-ratio helpers ---- */
+
+  /* Edit bar */
+  #edit-bar{
+    position:absolute;bottom:0;left:0;right:0;height:26px;z-index:30;
+    display:none;justify-content:center;align-items:center;gap:6px;
+    background:rgba(49,50,68,.7)
+  }
+  .gamepad.edit-mode #edit-bar{display:flex}
+  #edit-bar button{
+    padding:3px 12px;border:none;border-radius:4px;font-weight:600;font-size:.65rem;cursor:pointer
+  }
+  #edit-save{background:var(--green);color:#000}
+  #edit-cancel{background:var(--surface2);color:var(--text)}
+
+  /* Settings overlay */
+  #settings-overlay{
+    position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;
+    display:none;align-items:center;justify-content:center
+  }
+  #settings-overlay.open{display:flex}
+  .settings-panel{
+    background:var(--surface);border:1px solid var(--surface2);border-radius:12px;
+    padding:20px;width:280px;max-width:90%
+  }
+  .settings-panel h2{font-size:1rem;margin-bottom:12px}
+  .setting-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
+  .setting-row label{font-size:.75rem;color:var(--subtext)}
+  .setting-row input[type=range]{flex:1;accent-color:var(--accent);height:4px}
+  .setting-row .val{font-size:.7rem;color:var(--accent);min-width:30px;text-align:right}
+  .setting-row input[type=text]{
+    background:var(--bg);border:1px solid var(--surface2);border-radius:4px;
+    padding:4px 8px;color:var(--text);font-size:.75rem;width:140px
+  }
+  .settings-actions{display:flex;gap:8px;margin-top:12px}
+  .settings-actions button{flex:1;padding:8px;border:none;border-radius:6px;font-weight:600;font-size:.8rem;cursor:pointer}
+  #settings-save{background:var(--accent);color:var(--bg)}
+  #settings-close{background:var(--surface2);color:var(--text)}
+
+  /* Portrait: info only, no gamepad */
+  @media (orientation:portrait){
+    .gamepad.show{display:none!important}
+    .rotate-hint{display:block}
+  }
+</style>
+</head>
+<body>
+
+<div id="info-overlay">
+  <h1>🎮 Controller Proxy</h1>
+  <div class="sub">Connect to your PC running controller-server</div>
+  <input id="server-addr" type="text" placeholder="ip:port">
+  <div style="display:flex;gap:8px">
+    <button id="connect-btn">Connect</button>
+    <button id="start-btn" disabled>▶ Start</button>
+  </div>
+  <div id="status">Not connected</div>
+  <div class="rotate-hint">↻ Rotate to landscape for the gamepad</div>
+</div>
+
+<div class="gamepad" id="gamepad">
+  <div id="top-pill">
+    <button class="top-btn" id="edit-btn">✎</button>
+    <button class="top-btn" id="settings-btn">⚙</button>
+    <button class="top-btn" id="fullscreen-btn">⛶</button>
+  </div>
+
+  <!-- Controls (positioned by layout config) -->
+  <div class="ctrl" data-id="left-stick"  style="left:8%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-base" id="st-l"><div class="stick-knob" id="st-l-k"></div></div></div></div>
+  <div class="ctrl" data-id="right-stick" style="left:66%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-base" id="st-r"><div class="stick-knob" id="st-r-k"></div></div></div></div>
+
+  <div class="ctrl" data-id="dpad-up"    style="left:12%;top:48%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_UP">▲</div></div></div>
+  <div class="ctrl" data-id="dpad-down"  style="left:12%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_DOWN">▼</div></div></div>
+  <div class="ctrl" data-id="dpad-left"  style="left:4%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_LEFT">◀</div></div></div>
+  <div class="ctrl" data-id="dpad-right" style="left:20%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_RIGHT">▶</div></div></div>
+
+  <div class="ctrl" data-id="btn-a" style="left:78%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fa" data-code="A">A</div></div></div>
+  <div class="ctrl" data-id="btn-b" style="left:88%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fb" data-code="B">B</div></div></div>
+  <div class="ctrl" data-id="btn-x" style="left:68%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fx" data-code="X">X</div></div></div>
+  <div class="ctrl" data-id="btn-y" style="left:78%;top:46%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fy" data-code="Y">Y</div></div></div>
+
+  <div class="ctrl" data-id="lb" style="left:12%;top:3%;width:9%;height:6%"><div class="ctrl-inner"><div class="shl" data-code="LB">LB</div></div></div>
+  <div class="ctrl" data-id="rb" style="left:79%;top:3%;width:9%;height:6%"><div class="ctrl-inner"><div class="shl" data-code="RB">RB</div></div></div>
+  <div class="ctrl" data-id="lt" style="left:3%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-l"><div class="trg-fill" id="trg-l-fill"></div><span class="trg-lbl">L2</span></div></div></div>
+  <div class="ctrl" data-id="rt" style="left:90%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-r"><div class="trg-fill" id="trg-r-fill"></div><span class="trg-lbl">R2</span></div></div></div>
+
+  <div class="ctrl" data-id="menu-back"   style="left:34%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="BACK">BACK</div></div></div>
+  <div class="ctrl" data-id="menu-guide"  style="left:45%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="GUIDE">◉</div></div></div>
+  <div class="ctrl" data-id="menu-start"  style="left:56%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="START">START</div></div></div>
+
+  <div id="edit-bar">
+    <button id="edit-save">Save</button>
+    <button id="edit-cancel">Cancel</button>
+  </div>
+</div>
+
+<div id="settings-overlay">
+  <div class="settings-panel">
+    <h2>Settings</h2>
+    <div class="setting-row"><label>Deadzone</label><input type="range" id="cfg-deadzone" min="0" max="50" value="8"><span class="val" id="cfg-deadzone-v">0.08</span></div>
+    <div class="setting-row"><label>Flush (ms)</label><input type="range" id="cfg-flush" min="2" max="32" value="8"><span class="val" id="cfg-flush-v">8</span></div>
+    <div class="setting-row"><label>Trigger</label><input type="range" id="cfg-trigger" min="50" max="100" value="100"><span class="val" id="cfg-trigger-v">1.0</span></div>
+    <div class="setting-row"><label>Server</label><input type="text" id="cfg-addr" value=":9449"></div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <div style="font-size:.65rem;color:var(--subtext);flex:1">Saved to server config</div>
+      <button id="cfg-reset-layout" style="font-size:.6rem;background:var(--surface2);border:none;border-radius:4px;color:var(--text);padding:2px 8px;cursor:pointer">Reset layout</button>
+    </div>
+    <div class="settings-actions"><button id="settings-save">Save</button><button id="settings-close">Done</button></div>
+  </div>
+</div>
+
+<script>
+// ---- Auto-detect IP --------------------------------------------------------
+(function(){
+  const input=document.getElementById('server-addr');
+  if(location.host)input.value=location.host;
+  document.getElementById('status').textContent='Server: '+location.host;
+  setTimeout(()=>{const a=input.value.trim();if(a)connect(a)},400);
+})();
+
+// ---- WebSocket -------------------------------------------------------------
+let ws=null,connected=false,reconnectTimer=null,connectAddr='';
+const statusEl=document.getElementById('status');
+const startBtn=document.getElementById('start-btn');
+function setStatus(msg,err){statusEl.textContent=msg;statusEl.className=err?'error':''}
+function notify(msg){statusEl.textContent=msg}
+
+function connect(addr){
+  if(ws){ws.onclose=null;ws.close()}
+  connectAddr=addr;clearTimeout(reconnectTimer);
+  const url=addr.includes('://')?addr:`ws://${addr}/ws`;
+  setStatus('Connecting...');
+  ws=new WebSocket(url);
+  ws.onopen=()=>{
+    connected=true;startBtn.disabled=false;
+    setStatus('Connected — rotate to landscape');
+    loadConfig();loadLayout();
+    // If already landscape, show gamepad immediately
+    if(window.matchMedia('(orientation:landscape)').matches)showGamepad();
+  };
+  ws.onclose=()=>{
+    connected=false;startBtn.disabled=true;
+    document.getElementById('gamepad').classList.remove('show');
+    document.getElementById('info-overlay').style.display='flex';
+    setStatus('Reconnecting in 3s...',true);
+    if(connectAddr)reconnectTimer=setTimeout(()=>connect(connectAddr),3000);
+  };
+  ws.onerror=()=>{setStatus('Connection failed',true)};
+}
+document.getElementById('connect-btn').onclick=()=>{const a=document.getElementById('server-addr').value.trim();if(a)connect(a)};
+document.getElementById('server-addr').onkeydown=e=>{if(e.key==='Enter')document.getElementById('connect-btn').click()};
+
+// ---- Start button: force landscape + show gamepad --------------------------
+function showGamepad(){
+  document.getElementById('gamepad').classList.add('show');
+  document.getElementById('info-overlay').style.display='none';
+}
+startBtn.onclick=()=>{
+  // Request fullscreen + landscape lock
+  if(!document.fullscreenElement){
+    document.documentElement.requestFullscreen().then(()=>{
+      try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{})}catch(_){}
+      showGamepad();
+    }).catch(()=>showGamepad());
+  }else{
+    showGamepad();
+  }
+};
+
+// ---- Listen for orientation changes ----------------------------------------
+window.matchMedia('(orientation:landscape)').addEventListener('change',e=>{
+  if(e.matches&&connected)showGamepad();
+});
+
+// ---- Fullscreen ------------------------------------------------------------
+document.getElementById('fullscreen-btn').onclick=()=>{
+  if(document.fullscreenElement)document.exitFullscreen();
+  else document.documentElement.requestFullscreen().then(()=>{
+    try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{})}catch(_){}
+  }).catch(()=>{});
+};
+
+// ---- Send ------------------------------------------------------------------
+function send(type,code,value){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  ws.send(JSON.stringify({type,code,value}));
+}
+function keyDown(c){send('key',c,1)}
+function keyUp(c){send('key',c,0)}
+
+// ---- Buttons ---------------------------------------------------------------
+document.querySelectorAll('[data-code]').forEach(el=>{
+  const c=el.dataset.code;
+  el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();el.classList.add('active');keyDown(c)});
+  el.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();el.classList.remove('active');keyUp(c)});
+  el.addEventListener('touchcancel',()=>{if(isEditing)return;el.classList.remove('active');keyUp(c)});
+  el.addEventListener('mousedown',()=>{el.classList.add('active');keyDown(c)});
+  el.addEventListener('mouseup',()=>{el.classList.remove('active');keyUp(c)});
+});
+
+// ---- Triggers --------------------------------------------------------------
+function setupTrigger(eId,fId,code){
+  const el=document.getElementById(eId),fill=document.getElementById(fId);
+  let activeId=null;
+  function upd(cy){
+    const r=el.getBoundingClientRect();
+    const v=Math.max(0,Math.min(1,1-(cy-r.top)/r.height));
+    fill.style.height=(v*100)+'%';send('abs',code,v);
+  }
+  el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();activeId=e.changedTouches[0].identifier;upd(e.changedTouches[0].clientY)});
+  el.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientY);break}}});
+  el.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();for(let t of e.changedTouches){if(t.identifier===activeId){activeId=null;upd(0);break}}});
+  el.addEventListener('touchcancel',()=>{if(isEditing)return;activeId=null;upd(0)});
+}
+setupTrigger('trg-l','trg-l-fill','LT');
+setupTrigger('trg-r','trg-r-fill','RT');
+
+// ---- Sticks ----------------------------------------------------------------
+function setupStick(bId,kId,ax,ay){
+  const base=document.getElementById(bId),knob=document.getElementById(kId);
+  let activeId=null;
+  function upd(cx,cy){
+    const r=base.getBoundingClientRect(),cx_=r.left+r.width/2,cy_=r.top+r.height/2,mr=r.width/2;
+    let dx=(cx-cx_)/mr,dy=(cy-cy_)/mr;
+    const d=Math.sqrt(dx*dx+dy*dy);if(d>1){dx/=d;dy/=d}
+    knob.style.transform=`translate(calc(-50% + ${Math.round(dx*50)}%),calc(-50% + ${Math.round(dy*50)}%))`;
+    send('abs',ax,dx);send('abs',ay,dy);
+  }
+  function center(){activeId=null;knob.style.transform='translate(-50%,-50%)';send('abs',ax,0);send('abs',ay,0);}
+  base.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();const t=e.changedTouches[0];activeId=t.identifier;upd(t.clientX,t.clientY)});
+  base.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientX,t.clientY);break}}});
+  base.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();for(let t of e.changedTouches){if(t.identifier===activeId){center();break}}});
+  base.addEventListener('touchcancel',center);
+}
+setupStick('st-l','st-l-k','LX','LY');
+setupStick('st-r','st-r-k','RX','RY');
+
+// ---- Keyboard --------------------------------------------------------------
+const keyMap={
+  'j':'A','k':'B','u':'X','i':'Y','q':'LB','e':'RB',
+  'w':'DPAD_UP','a':'DPAD_LEFT','s':'DPAD_DOWN','d':'DPAD_RIGHT',
+  'ArrowUp':'DPAD_UP','ArrowDown':'DPAD_DOWN','ArrowLeft':'DPAD_LEFT','ArrowRight':'DPAD_RIGHT',
+  'Enter':'START','Shift':'BACK',' ':'GUIDE','1':'THUMBL','2':'THUMBR',
+};
+document.addEventListener('keydown',e=>{const c=keyMap[e.key];if(c){e.preventDefault();const el=document.querySelector(`[data-code="${c}"]`);if(el)el.classList.add('active');keyDown(c)}});
+document.addEventListener('keyup',e=>{const c=keyMap[e.key];if(c){e.preventDefault();const el=document.querySelector(`[data-code="${c}"]`);if(el)el.classList.remove('active');keyUp(c)}});
+
+// ---- Layout engine ---------------------------------------------------------
+const defaultLayout={
+  "left-stick":  {x:8,y:28,w:26,h:26},
+  "right-stick": {x:66,y:28,w:26,h:26},
+  "dpad-up":     {x:12,y:48,w:10,h:10},
+  "dpad-down":   {x:12,y:62,w:10,h:10},
+  "dpad-left":   {x:4,y:55,w:10,h:10},
+  "dpad-right":  {x:20,y:55,w:10,h:10},
+  "btn-a":       {x:78,y:62,w:10,h:10},
+  "btn-b":       {x:88,y:55,w:10,h:10},
+  "btn-x":       {x:68,y:55,w:10,h:10},
+  "btn-y":       {x:78,y:46,w:10,h:10},
+  "lb":          {x:12,y:3,w:9,h:6},
+  "rb":          {x:79,y:3,w:9,h:6},
+  "lt":          {x:3,y:3,w:7,h:6},
+  "rt":          {x:90,y:3,w:7,h:6},
+  "menu-back":   {x:34,y:86,w:9,h:5},
+  "menu-guide":  {x:45,y:86,w:9,h:5},
+  "menu-start":  {x:56,y:86,w:9,h:5},
+};
+let currentLayout={};
+let GRID=5;
+
+function applyLayout(layout){
+  for(const[id,pos]of Object.entries(layout)){
+    if(id==='_grid')continue;
+    const el=document.querySelector(`[data-id="${id}"]`);
+    if(!el)continue;
+    // Backward compat: `size` → w/h
+    const w=pos.w||pos.size||10;
+    const h=pos.h||pos.size||10;
+    el.style.left=pos.x+'%';el.style.top=(pos.y||0)+'%';
+    el.style.width=w+'%';el.style.height=h+'%';
+  }
+}
+
+function loadLayout(){
+  fetch('/api/layout').then(r=>r.json()).then(data=>{
+    if(data&&Object.keys(data).length>0){
+      currentLayout=data;
+    }else{
+      currentLayout=Object.assign({},defaultLayout);
+    }
+    applyLayout(currentLayout);
+  }).catch(()=>{
+    currentLayout=Object.assign({},defaultLayout);
+    applyLayout(currentLayout);
+  });
+}
+
+// ---- Edit mode -------------------------------------------------------------
+const gamepad=document.getElementById('gamepad');
+let isEditing=false;
+
+document.getElementById('edit-btn').onclick=()=>{
+  isEditing=!isEditing;
+  gamepad.classList.toggle('edit-mode',isEditing);
+  document.getElementById('edit-btn').classList.toggle('active',isEditing);
+};
+document.getElementById('edit-cancel').onclick=()=>{
+  applyLayout(currentLayout);
+  gamepad.classList.remove('edit-mode');
+  document.getElementById('edit-btn').classList.remove('active');
+  isEditing=false;
+};
+document.getElementById('edit-save').onclick=()=>{
+  fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
+    .then(r=>r.json()).then(r=>{if(r.status==='saved'){gamepad.classList.remove('edit-mode');document.getElementById('edit-btn').classList.remove('active');isEditing=false}})
+    .catch(()=>{});
+};
+
+// ---- Snapping --------------------------------------------------------------
+function snap(v){return Math.round(v/GRID)*GRID}
+
+// ---- Drag to move ----------------------------------------------------------
+// Corner radius for resize vs drag detection (fixed px so small buttons drag easily)
+const CORNER=20;
+
+let dragTarget=null,dragId=null;
+document.addEventListener('touchstart',e=>{
+  if(!isEditing)return;
+  const ctrl=e.target.closest('.ctrl');
+  if(!ctrl||ctrl.closest('#top-pill')||ctrl.closest('#edit-bar'))return;
+  // Bottom-right CORNER px = resize zone; rest = drag zone
+  const rect=ctrl.getBoundingClientRect();
+  const t=e.changedTouches[0];
+  const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
+  if(cx>rect.width-CORNER&&cy>rect.height-CORNER)return;
+  dragTarget=ctrl;dragId=dragTarget.dataset.id;
+  dragTarget._sx=t.clientX;dragTarget._sy=t.clientY;
+  const gp=dragTarget.parentElement.getBoundingClientRect();
+  dragTarget._gpr={w:gp.width,h:gp.height};
+},{passive:true});
+
+document.addEventListener('touchmove',e=>{
+  if(!dragTarget||!isEditing)return;
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const dx=(t.clientX-dragTarget._sx)/dragTarget._gpr.w*100;
+  const dy=(t.clientY-dragTarget._sy)/dragTarget._gpr.h*100;
+  const pos=currentLayout[dragId];
+  if(!pos)return;
+  pos.x=Math.max(0,Math.min(100-pos.w,pos.x+dx));
+  pos.y=Math.max(0,Math.min(100-pos.h,pos.y+dy));
+  dragTarget._sx=t.clientX;dragTarget._sy=t.clientY;
+  applyLayout(currentLayout);
+},{passive:false});
+
+// Snap CENTER to grid on release
+function snapCenter(pos){
+  const cx=pos.x+pos.w/2,cy=pos.y+pos.h/2;
+  pos.x=Math.max(0,Math.min(100-pos.w,snap(cx)-pos.w/2));
+  pos.y=Math.max(0,Math.min(100-pos.h,snap(cy)-pos.h/2));
+}
+
+document.addEventListener('touchend',()=>{
+  if(!dragTarget||!isEditing)return;
+  const pos=currentLayout[dragId];
+  if(pos)snapCenter(pos);
+  applyLayout(currentLayout);
+  dragTarget=null;dragId=null;
+});
+document.addEventListener('touchcancel',()=>{dragTarget=null;dragId=null});
+
+// ---- Resize ----------------------------------------------------------------
+let resizeTarget=null,resizeId=null;
+document.addEventListener('touchstart',e=>{
+  if(!isEditing)return;
+  const ctrl=e.target.closest('.ctrl');
+  if(!ctrl)return;
+  const rect=ctrl.getBoundingClientRect();
+  const t=e.changedTouches[0];
+  const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
+  if(cx<rect.width-CORNER||cy<rect.height-CORNER)return;
+  resizeTarget=ctrl;resizeId=ctrl.dataset.id;
+  resizeTarget._sx=t.clientX;resizeTarget._sy=t.clientY;
+  resizeTarget._ow=currentLayout[resizeId].w;
+  resizeTarget._oh=currentLayout[resizeId].h;
+  const gp=ctrl.parentElement.getBoundingClientRect();
+  resizeTarget._gpr={w:gp.width,h:gp.height};
+  e.preventDefault();
+},{passive:true});
+
+document.addEventListener('touchmove',e=>{
+  if(!resizeTarget||!isEditing)return;
+  e.preventDefault();
+  const t=e.changedTouches[0];
+  const dx=(t.clientX-resizeTarget._sx)/resizeTarget._gpr.w*100;
+  const dy=(t.clientY-resizeTarget._sy)/resizeTarget._gpr.h*100;
+  const p=currentLayout[resizeId];
+  if(!p)return;
+  p.w=Math.max(5,Math.min(90,p.w+dx));
+  p.h=Math.max(5,Math.min(90,p.h+dy));
+  resizeTarget._sx=t.clientX;resizeTarget._sy=t.clientY;
+  applyLayout(currentLayout);
+},{passive:false});
+document.addEventListener('touchend',()=>{
+  if(!resizeTarget||!isEditing)return;
+  const p=currentLayout[resizeId];
+  if(p){p.w=snap(p.w);p.h=snap(p.h);applyLayout(currentLayout)}
+  resizeTarget=null;resizeId=null;
+});
+document.addEventListener('touchcancel',()=>{resizeTarget=null;resizeId=null});
+
+// ---- Settings --------------------------------------------------------------
+const cfgOverlay=document.getElementById('settings-overlay');
+function loadConfig(){
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+    document.getElementById('cfg-deadzone').value=Math.round(cfg.stick_deadzone*100);
+    document.getElementById('cfg-deadzone-v').textContent=cfg.stick_deadzone.toFixed(2);
+    document.getElementById('cfg-flush').value=cfg.flush_interval_ms;
+    document.getElementById('cfg-flush-v').textContent=cfg.flush_interval_ms;
+    document.getElementById('cfg-trigger').value=Math.round(cfg.trigger_threshold*100);
+    document.getElementById('cfg-trigger-v').textContent=cfg.trigger_threshold.toFixed(1);
+    document.getElementById('cfg-addr').value=cfg.listen;
+  }).catch(()=>{});
+}
+document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
+  el.addEventListener('input',()=>{
+    const v=el.nextElementSibling;
+    if(el.id==='cfg-deadzone')v.textContent=(el.value/100).toFixed(2);
+    else if(el.id==='cfg-flush')v.textContent=el.value;
+    else if(el.id==='cfg-trigger')v.textContent=(el.value/100).toFixed(1);
+  });
+});
+document.getElementById('settings-btn').onclick=()=>{loadConfig();cfgOverlay.classList.add('open')};
+document.getElementById('settings-close').onclick=()=>cfgOverlay.classList.remove('open');
+document.getElementById('settings-save').onclick=()=>{
+  fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    stick_deadzone:parseFloat(document.getElementById('cfg-deadzone').value)/100,
+    flush_interval_ms:parseInt(document.getElementById('cfg-flush').value),
+    trigger_threshold:parseFloat(document.getElementById('cfg-trigger').value)/100,
+    listen:document.getElementById('cfg-addr').value,
+  })}).then(r=>r.json()).then(r=>{if(r.status==='saved')cfgOverlay.classList.remove('open')}).catch(()=>{});
+};
+// Reset layout button
+document.getElementById('cfg-reset-layout').onclick=()=>{
+  currentLayout=Object.assign({},defaultLayout);
+  applyLayout(currentLayout);
+  fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(defaultLayout)}).catch(()=>{});
+};
+cfgOverlay.addEventListener('click',e=>{if(e.target===cfgOverlay)cfgOverlay.classList.remove('open')});
+</script>
+</body>
+</html>
