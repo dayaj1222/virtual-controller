@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   workflow_dispatch:   # also allow manual trigger from GitHub UI
 
+permissions:
+  contents: write       # needed to create releases
+
 jobs:
   build:
     name: Build and Release
