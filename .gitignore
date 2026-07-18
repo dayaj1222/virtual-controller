@@ -3,6 +3,7 @@ controller-server
 xbox-controller-proxy
 *.test
 *.out
+dist/
 
 # Env
 .env

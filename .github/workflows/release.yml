@@ -1,0 +1,36 @@
+name: Build and Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:   # also allow manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build
+        run: |
+          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-linux-amd64   .
+          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/virtual-controller-linux-arm64   .
+          # GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-windows-amd64.exe .
+          # GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-darwin-amd64  .
+          # GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o dist/virtual-controller-darwin-arm64  .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
