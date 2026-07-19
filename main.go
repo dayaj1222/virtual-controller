@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/gorilla/websocket"
+	qrcode "github.com/skip2/go-qrcode"
 	"golang.org/x/sys/unix"
 )
 
@@ -699,6 +701,21 @@ func startInhibitor() {
 	log.Print("dbus idle inhibitor started")
 }
 
+// ---- Startup helpers -------------------------------------------------------
+
+func getLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
+		}
+	}
+	return ""
+}
+
 // ---- main -------------------------------------------------------------------
 
 var appCfg config
@@ -706,6 +723,19 @@ var appCfg config
 func main() {
 	appCfg = loadConfig()
 	startInhibitor()
+
+	// Print a QR code with the LAN URL so the user can scan from their phone.
+	if ip := getLocalIP(); ip != "" {
+		url := fmt.Sprintf("http://%s%s", ip, appCfg.ListenAddr)
+		qr, err := qrcode.New(url, qrcode.Medium)
+		if err == nil {
+			log.Printf("📱 Scan from your phone: %s", url)
+			fmt.Println(qr.ToSmallString(false))
+		} else {
+			log.Printf("📱 Phone client: %s", url)
+		}
+	}
+
 	addr := appCfg.ListenAddr
 
 	sigCh := make(chan os.Signal, 1)
