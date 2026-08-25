@@ -63,6 +63,28 @@
   }
   .top-btn:active,.top-btn.active{opacity:1;background:rgba(137,180,250,.25);color:var(--accent)}
 
+  /* ---- Hotkey menu ---- */
+  #hotkey-menu{
+    position:absolute;top:30px;left:50%;transform:translateX(-50%);z-index:25;
+    display:none;gap:6px;padding:8px;border-radius:10px;
+    background:rgba(49,50,68,.9);backdrop-filter:blur(4px);
+    -webkit-backdrop-filter:blur(4px);flex-wrap:wrap;max-width:90%
+  }
+  #hotkey-menu.open{display:flex}
+  .hk-btn{
+    background:var(--surface2);border:1px solid var(--accent);border-radius:8px;
+    color:var(--accent);font-size:.8rem;font-weight:700;padding:10px 16px;cursor:pointer;
+    min-width:56px
+  }
+  .hk-btn:active,.hk-btn.active{background:var(--accent);color:var(--bg)}
+
+  /* ---- Connection info log ---- */
+  #conn-log{
+    position:absolute;top:6px;right:6px;z-index:24;
+    font-size:.6rem;color:var(--subtext);padding:2px 6px;
+    background:rgba(49,50,68,.4);border-radius:6px;pointer-events:none
+  }
+
   /* Control wrappers */
   .ctrl{position:absolute;touch-action:none}
   .ctrl-inner{width:100%;height:100%;position:relative}
@@ -82,15 +104,24 @@
   .trg-fill{position:absolute;bottom:0;left:0;right:0;background:var(--accent);height:0%;opacity:.4}
   .trg-lbl{position:relative;z-index:1}
 
-  /* Sticks */
-  .stick-base{
-    width:100%;height:100%;background:var(--surface);
-    border:2px solid var(--surface2);border-radius:50%;position:relative
+  /* Sticks — zone-based: whole rect is hit area, press point becomes center */
+  .stick-zone{
+    width:100%;height:100%;position:relative;touch-action:none;
+    background:var(--surface);border:1px solid var(--surface2);border-radius:8px
   }
+  .stick-zone .stick-origin{
+    position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;
+    border:2px solid var(--accent);border-radius:50%;pointer-events:none;
+    background:rgba(137,180,250,.25);opacity:0;transition:opacity .08s
+  }
+  .stick-zone .stick-origin.show{opacity:1}
   .stick-knob{
-    position:absolute;width:38%;height:38%;background:var(--accent);
-    border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none
+    position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;
+    background:var(--accent);border-radius:50%;pointer-events:none;
+    opacity:0;transition:opacity .08s
   }
+  .stick-knob.show{opacity:1}
+  .gamepad.edit-mode .stick-zone{background:rgba(137,180,250,.12);border:1px dashed var(--accent);border-radius:8px}
 
   /* Generic button filling its wrapper */
   .btn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;transition:background .05s;touch-action:none}
@@ -180,13 +211,22 @@
 <div class="gamepad" id="gamepad">
   <div id="top-pill">
     <button class="top-btn" id="edit-btn">✎</button>
+    <button class="top-btn" id="menu-btn">☰</button>
     <button class="top-btn" id="settings-btn">⚙</button>
     <button class="top-btn" id="fullscreen-btn">⛶</button>
   </div>
 
+  <!-- Hotkey menu (collapsible, outside main layout) -->
+  <div id="hotkey-menu">
+    <button class="hk-btn" id="hk-f12" data-kb="F12">F12</button>
+  </div>
+
+  <!-- Connection info log (small, below menu bar) -->
+  <div id="conn-log"><span id="ping-val">—</span></div>
+
   <!-- Controls (positioned by layout config) -->
-  <div class="ctrl" data-id="left-stick"  style="left:8%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-base" id="st-l"><div class="stick-knob" id="st-l-k"></div></div></div></div>
-  <div class="ctrl" data-id="right-stick" style="left:66%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-base" id="st-r"><div class="stick-knob" id="st-r-k"></div></div></div></div>
+  <div class="ctrl" data-id="left-stick"  style="left:8%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-zone" id="st-l"><div class="stick-origin" id="st-l-o"></div><div class="stick-knob" id="st-l-k"></div></div></div></div>
+  <div class="ctrl" data-id="right-stick" style="left:66%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-zone" id="st-r"><div class="stick-origin" id="st-r-o"></div><div class="stick-knob" id="st-r-k"></div></div></div></div>
 
   <div class="ctrl" data-id="dpad-up"    style="left:12%;top:48%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_UP">▲</div></div></div>
   <div class="ctrl" data-id="dpad-down"  style="left:12%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_DOWN">▼</div></div></div>
@@ -257,6 +297,18 @@ function connect(addr){
     loadConfig();loadLayout();
     // If already landscape, show gamepad immediately
     if(window.matchMedia('(orientation:landscape)').matches)showGamepad();
+    // Start latency measurement loop
+    startPing();
+  };
+  ws.onmessage=(ev)=>{
+    try{
+      const m=JSON.parse(ev.data);
+      if(m.type==='pong'&&pingSentAt){
+        const rtt=Date.now()-pingSentAt;
+        document.getElementById('ping-val').textContent=rtt+'ms';
+        pingSentAt=null;
+      }
+    }catch(_){}
   };
   ws.onclose=()=>{
     connected=false;startBtn.disabled=true;
@@ -307,6 +359,23 @@ function send(type,code,value){
 }
 function keyDown(c){send('key',c,1)}
 function keyUp(c){send('key',c,0)}
+
+// ---- Keyboard hotkeys (F12 etc) --------------------------------------------
+function sendKb(code,val){send('kbkey',code,val)}
+function kbDown(c){sendKb(c,1)}
+function kbUp(c){sendKb(c,0)}
+
+// ---- Latency measurement ----------------------------------------------------
+let pingSentAt=null,pingTimer=null;
+function startPing(){
+  clearInterval(pingTimer);
+  pingTimer=setInterval(()=>{
+    if(ws&&ws.readyState===WebSocket.OPEN&&pingSentAt===null){
+      pingSentAt=Date.now();
+      ws.send(JSON.stringify({type:'ping'}));
+    }
+  },2000);
+}
 
 // ---- Unified control input + edit drag/resize -----------------------------
 // Each .ctrl wrapper handles BOTH game input AND edit drag/resize.
@@ -366,25 +435,44 @@ document.querySelectorAll('.ctrl').forEach(el=>{
   el.addEventListener('touchcancel',()=>{el._edit=null;const btn=el.querySelector('[data-code]');if(btn)btn.classList.remove('active')});
 });
 
-// ---- Sticks (analog tracking, separate from button logic) ------------------
-function setupStick(bId,kId,ax,ay){
-  const base=document.getElementById(bId),knob=document.getElementById(kId);
-  let activeId=null;
+// ---- Sticks — zone-based: touch anywhere in the rect, press point is center --
+// Tap (quick press-release, no drag) = stick click (L3/R3).
+function setupStick(zId, oId, kId, ax, ay, clickCode){
+  const zone=document.getElementById(zId),dot=document.getElementById(oId),knob=document.getElementById(kId);
+  let activeId=null,ox=0,oy=0,t0=0,moved=false;
   function upd(cx,cy){
-    const r=base.getBoundingClientRect(),cx_=r.left+r.width/2,cy_=r.top+r.height/2,mr=r.width/2;
-    let dx=(cx-cx_)/mr,dy=(cy-cy_)/mr;
+    const r=zone.getBoundingClientRect(),mr=Math.min(r.width,r.height)/2;
+    let dx=(cx-(r.left+ox))/mr,dy=(cy-(r.top+oy))/mr;
     const d=Math.sqrt(dx*dx+dy*dy);if(d>1){dx/=d;dy/=d}
-    knob.style.transform=`translate(calc(-50% + ${Math.round(dx*50)}%),calc(-50% + ${Math.round(dy*50)}%))`;
+    knob.style.left=(ox+dx*mr)+'px';knob.style.top=(oy+dy*mr)+'px';
     send('abs',ax,dx);send('abs',ay,dy);
   }
-  function center(){activeId=null;knob.style.transform='translate(-50%,-50%)';send('abs',ax,0);send('abs',ay,0);}
-  base.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();const t=e.changedTouches[0];activeId=t.identifier;upd(t.clientX,t.clientY)});
-  base.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientX,t.clientY);break}}});
-  base.addEventListener('touchend',e=>{if(isEditing)return;e.preventDefault();for(let t of e.changedTouches){if(t.identifier===activeId){center();break}}});
-  base.addEventListener('touchcancel',center);
+  function center(){activeId=null;dot.classList.remove('show');knob.classList.remove('show');send('abs',ax,0);send('abs',ay,0);}
+  zone.addEventListener('touchstart',e=>{
+    if(isEditing)return;e.preventDefault();
+    const t=e.changedTouches[0],r=zone.getBoundingClientRect();
+    activeId=t.identifier;ox=t.clientX-r.left;oy=t.clientY-r.top;
+    t0=Date.now();moved=false;
+    dot.style.left=ox+'px';dot.style.top=oy+'px';dot.classList.add('show');
+    knob.style.left=ox+'px';knob.style.top=oy+'px';knob.classList.add('show');
+    send('abs',ax,0);send('abs',ay,0);
+  },{passive:false});
+  zone.addEventListener('touchmove',e=>{
+    if(isEditing)return;e.preventDefault();if(activeId===null)return;
+    for(let t of e.changedTouches){if(t.identifier===activeId){moved=true;upd(t.clientX,t.clientY);break}}
+  },{passive:false});
+  zone.addEventListener('touchend',e=>{
+    if(isEditing)return;e.preventDefault();
+    for(let t of e.changedTouches){if(t.identifier===activeId){
+      const dt=Date.now()-t0;
+      if(!moved&&dt<180&&clickCode){keyDown(clickCode);keyUp(clickCode)}
+      center();break
+    }}
+  },{passive:false});
+  zone.addEventListener('touchcancel',center);
 }
-setupStick('st-l','st-l-k','LX','LY');
-setupStick('st-r','st-r-k','RX','RY');
+setupStick('st-l','st-l-o','st-l-k','LX','LY','THUMBL');
+setupStick('st-r','st-r-o','st-r-k','RX','RY','THUMBR');
 
 // ---- Triggers (analog tracking, separate) ----------------------------------
 function setupTrigger(eId,fId,code){
@@ -472,6 +560,22 @@ document.getElementById('edit-btn').onclick=()=>{
   gamepad.classList.toggle('edit-mode',isEditing);
   document.getElementById('edit-btn').classList.toggle('active',isEditing);
 };
+
+// ---- Hotkey menu -----------------------------------------------------------
+document.getElementById('menu-btn').onclick=()=>{
+  const menu=document.getElementById('hotkey-menu');
+  menu.classList.toggle('open');
+  document.getElementById('menu-btn').classList.toggle('active',menu.classList.contains('open'));
+};
+// F12 toggles the game HUD overlay (MangoHud etc).
+document.getElementById('hk-f12').addEventListener('touchstart',e=>{
+  e.preventDefault();e.stopPropagation();
+  const b=e.currentTarget;b.classList.add('active');kbDown('F12');
+},{passive:false});
+document.getElementById('hk-f12').addEventListener('touchend',e=>{
+  e.preventDefault();e.stopPropagation();
+  const b=e.currentTarget;b.classList.remove('active');kbUp('F12');
+},{passive:false});
 document.getElementById('edit-cancel').onclick=()=>{
   applyLayout(currentLayout);
   gamepad.classList.remove('edit-mode');

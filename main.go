@@ -135,6 +135,11 @@ const (
 	AbsHat0Y = 0x11
 )
 
+// Linux keyboard key codes (<linux/input-event-codes.h>)
+const (
+	KeyF12 = 88
+)
+
 // ---- button/axis definitions ------------------------------------------------
 
 var allButtons = []uint16{
@@ -204,6 +209,11 @@ var absCodeMap = map[string]uint16{
 	"RT":   AbsRZ,
 	"HATX": AbsHat0X,
 	"HATY": AbsHat0Y,
+}
+
+// kbKeyCodeMap maps client hotkey names → Linux keyboard key codes.
+var kbKeyCodeMap = map[string]uint16{
+	"F12": KeyF12,
 }
 
 // Incoming JSON from the phone client.
@@ -348,6 +358,52 @@ func destroyUinput(fd int) {
 	unix.Close(fd)
 }
 
+// createKeyboard opens a second uinput device configured as a keyboard,
+// so hotkey presses (e.g. F12) go to a real keyboard device instead of
+// polluting the gamepad device. Returns the fd (or -1 on error).
+func createKeyboard() (int, error) {
+	fd, err := unix.Open("/dev/uinput", unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, fmt.Errorf("open /dev/uinput (kb): %w", err)
+	}
+
+	// Enable key events only
+	if err := ioctl(fd, uiSetEvbit, uintptr(EvKey)); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("set evbit (kb): %w", err)
+	}
+
+	// Register the F12 key
+	if err := ioctl(fd, uiSetKeybit, uintptr(KeyF12)); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("set keybit F12: %w", err)
+	}
+
+	var name [80]byte
+	copy(name[:], []byte("Virtual Hotkey Keyboard"))
+	setup := uinputSetup{
+		ID: inputID{
+			Bustype: unix.BUS_USB,
+			Vendor:  0x045e,
+			Product: 0x0001,
+			Version: 0x0110,
+		},
+		Name: name,
+	}
+	if err := ioctl(fd, uiDevSetup, uintptr(unsafe.Pointer(&setup))); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("dev setup (kb): %w", err)
+	}
+
+	if err := ioctl(fd, uiDevCreate, 0); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("dev create (kb): %w", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	return fd, nil
+}
+
 // ---- Ordered event writer ---------------------------------------------------
 // Single goroutine, single channel — total ordering guaranteed.
 // Buttons flush the batch immediately (low latency).  Analog events batch
@@ -458,6 +514,18 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("virtual controller created (fd=%d)", fd)
 
+	// Create a virtual keyboard for hotkeys (F12 etc).
+	kbfd, kerr := createKeyboard()
+	if kerr != nil {
+		log.Printf("create keyboard: %v", kerr)
+	}
+	defer func() {
+		if kbfd >= 0 {
+			ioctl(kbfd, uiDevDestroy, 0)
+			unix.Close(kbfd)
+		}
+	}()
+
 	// Start the ordered writer.
 	ow := newOrderedWriter(fd, appCfg.FlushInterval)
 	defer ow.close()
@@ -538,8 +606,36 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			ow.push(uinputEvent{Type: EvAbs, Code: code, Value: v})
 			lastInput.Store(time.Now().UnixNano())
 
+		case "kbkey":
+			// Keyboard hotkey (e.g. F12). Value: 1=press, 0=release.
+			if kbfd < 0 {
+				log.Printf("kbkey: no keyboard device")
+				continue
+			}
+			code, ok := kbKeyCodeMap[m.Code]
+			if !ok {
+				log.Printf("unknown kbkey: %s", m.Code)
+				continue
+			}
+			var val int
+			if err := json.Unmarshal(m.Value, &val); err != nil {
+				log.Printf("bad kbkey value: %v", err)
+				continue
+			}
+			v := int32(0)
+			if val > 0 {
+				v = 1
+			}
+			writeRaw(kbfd, inputEvent{Type: EvKey, Code: code, Value: v})
+			writeRaw(kbfd, inputEvent{Type: EvSync, Code: 0, Value: 0})
+			lastInput.Store(time.Now().UnixNano())
+
 		case "sync":
 			ow.push(uinputEvent{Type: EvSync, Code: 0, Value: 0})
+
+		case "ping":
+			// Reply so the client can measure round-trip latency.
+			conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
 		}
 	}
 }
@@ -716,6 +812,16 @@ func getLocalIP() string {
 	return ""
 }
 
+// noCache wraps an http.Handler to prevent caching of the served files.
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		h.ServeHTTP(w, r)
+	})
+}
+
 // ---- main -------------------------------------------------------------------
 
 var appCfg config
@@ -745,7 +851,7 @@ func main() {
 	mux.HandleFunc("/ws", wsHandler)
 	mux.HandleFunc("/api/config", configHandler)
 	mux.HandleFunc("/api/layout", layoutHandler)
-	mux.Handle("/", http.FileServer(http.Dir("client")))
+	mux.Handle("/", noCache(http.FileServer(http.Dir("client"))))
 
 	server := &http.Server{Addr: addr, Handler: mux}
 
