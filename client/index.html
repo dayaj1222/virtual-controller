@@ -82,45 +82,30 @@
   }
   .gamepad.edit-mode .ctrl{z-index:2}
 
-  /* ---- Top floating buttons ---- */
-  /* Toolbar sits above the controls it can overlap in narrow landscape. */
-  #top-pill{
-    position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:26;
-    display:flex;gap:2px;padding:3px;border-radius:var(--radius-lg);
-    background:rgba(49,50,68,.55);border:1px solid var(--surface2);
-    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)
+  /* ---- Menu: hidden until the grip is tapped; panel reuses settings styles ---- */
+  #menu{position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:26;display:flex;flex-direction:column;align-items:center}
+  #menu-handle{
+    width:72px;height:20px;padding:0;border:none;background:transparent;cursor:pointer;
+    display:flex;align-items:center;justify-content:center
   }
-  /* 44px hit area via width/height; the visible glyph stays small and quiet. */
-  .top-btn{
-    position:relative;border:none;border-radius:var(--radius-sm);
-    width:var(--tap);height:36px;display:flex;align-items:center;justify-content:center;
-    color:var(--subtext);background:transparent;cursor:pointer;
-    transition:color .12s var(--ease),background .12s var(--ease)
+  #menu-handle span{width:40px;height:4px;border-radius:2px;background:var(--surface2);transition:background .2s var(--ease)}
+  #menu-handle:hover span,#menu.open #menu-handle span{background:var(--subtext)}
+  #menu-panel{
+    display:none;margin-top:4px;width:min(300px,92vw);padding:14px;
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-lg);
+    box-shadow:0 10px 30px rgba(0,0,0,.4)
   }
-  .top-btn svg{width:18px;height:18px}
-  .top-btn::after{
-    content:'';position:absolute;left:50%;bottom:-4px;width:16px;height:2px;
-    border-radius:2px;background:var(--accent);transform:translateX(-50%) scaleX(0);
-    transition:transform .16s var(--ease)
+  #menu.open #menu-panel{display:block}
+  .menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  .menu-action{
+    height:40px;border:none;border-radius:var(--radius);background:var(--surface2);color:var(--text);
+    font-size:.8rem;font-weight:600;cursor:pointer;transition:filter .12s var(--ease),transform .12s var(--ease)
   }
-  .top-btn:hover{color:var(--text)}
-  .top-btn:active,.top-btn.active{color:var(--accent);background:rgba(137,180,250,.14)}
-  .top-btn.active::after{transform:translateX(-50%) scaleX(1)}
-
-  /* ---- Hotkey menu ---- */
-  #hotkey-menu{
-    position:absolute;top:46px;left:50%;transform:translateX(-50%);z-index:25;
-    display:none;gap:6px;padding:8px;border-radius:var(--radius-lg);
-    background:rgba(49,50,68,.94);border:1px solid var(--surface2);
-    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);flex-wrap:wrap;max-width:90%
-  }
-  #hotkey-menu.open{display:flex}
-  .hk-btn{
-    background:var(--surface2);border:1px solid var(--accent);border-radius:var(--radius-sm);
-    color:var(--accent-on-surface2);font-size:.8rem;font-weight:700;height:var(--tap);padding:0 18px;
-    cursor:pointer;min-width:64px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace
-  }
-  .hk-btn:active,.hk-btn.active{background:var(--accent);color:var(--bg)}
+  .menu-action:active{transform:translateY(1px)}
+  .menu-action.active,.menu-action[aria-pressed=true]{background:var(--accent);color:var(--bg)}
+  .menu-action:disabled{opacity:.5;cursor:default}
+  .menu-section{font-size:.7rem;font-weight:700;color:var(--subtext);text-transform:uppercase;letter-spacing:.08em;margin:4px 0 8px}
+  .menu-note{font-size:.72rem;color:var(--subtext);margin-top:8px;min-height:1em}
 
   /* ---- Connection info log ---- */
   /* Saved layouts put RB/RT top-right, so the readout takes a second row
@@ -133,6 +118,8 @@
     border-radius:999px;pointer-events:none
   }
   #conn-log .dot{width:6px;height:6px;border-radius:50%;background:var(--subtext);flex:none}
+  #conn-log .slot{color:var(--text);font-weight:600}
+  #conn-log .slot:empty{display:none}
   #conn-log .dot.live{background:var(--green);box-shadow:0 0 0 3px rgba(166,227,161,.18)}
   #conn-log .dot.dead{background:var(--red);box-shadow:0 0 0 3px rgba(243,139,168,.18)}
 
@@ -322,28 +309,28 @@
 </div>
 
 <div class="gamepad" id="gamepad">
-  <div id="top-pill">
-    <button class="top-btn" id="edit-btn" title="Edit layout" aria-label="Edit layout">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14.5 5.5 18.5 9.5"/></svg>
-    </button>
-    <button class="top-btn" id="menu-btn" title="Hotkeys" aria-label="Hotkeys">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
-    </button>
-    <button class="top-btn" id="settings-btn" title="Settings" aria-label="Settings">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>
-    </button>
-    <button class="top-btn" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-    </button>
-  </div>
-
-  <!-- Hotkey menu (collapsible, outside main layout) -->
-  <div id="hotkey-menu">
-    <button class="hk-btn" id="hk-f12" data-kb="F12">F12</button>
+  <!-- Menu: hidden until the grip at the top is tapped -->
+  <div id="menu">
+    <button id="menu-handle" aria-label="Open menu" aria-expanded="false" title="Menu"><span></span></button>
+    <div id="menu-panel" role="dialog" aria-label="Menu">
+      <div class="menu-grid">
+        <button class="menu-action" id="edit-btn">Edit layout</button>
+        <button class="menu-action" id="fullscreen-btn">Fullscreen</button>
+        <button class="menu-action" id="settings-btn">Settings</button>
+        <button class="menu-action" id="hk-f12" data-kb="F12" title="Toggle game overlay">F12 overlay</button>
+      </div>
+      <div class="menu-section">Buzz on touch</div>
+      <div class="menu-grid">
+        <button class="menu-action" id="menu-buzz-on" aria-pressed="true">Buzz: on</button>
+        <button class="menu-action" id="menu-buzz-test">Test buzz</button>
+      </div>
+      <div class="setting-row"><label for="menu-buzz-ms">Strength</label><input type="range" id="menu-buzz-ms" min="10" max="60" value="25"><span class="val" id="menu-buzz-ms-v">25 ms</span></div>
+      <p class="menu-note" id="menu-buzz-note"></p>
+    </div>
   </div>
 
   <!-- Connection info log (small, below menu bar) -->
-  <div id="conn-log"><span class="dot" id="conn-dot"></span><span id="ping-val">--</span></div>
+  <div id="conn-log"><span class="dot" id="conn-dot"></span><span class="slot" id="slot-val"></span><span id="ping-val">--</span></div>
 
   <!-- Controls (positioned by layout config) -->
   <div class="ctrl" data-id="left-stick"  style="left:8%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-zone" id="st-l"><div class="stick-origin" id="st-l-o"></div><div class="stick-knob" id="st-l-k"></div></div></div></div>
@@ -394,6 +381,8 @@
     <div class="settings-group">
       <h3>Layout</h3>
       <div class="setting-row"><label for="cfg-grid">Snap grid</label><input type="range" id="cfg-grid" min="2" max="10" value="5"><span class="val" id="cfg-grid-v">5%</span></div>
+      <div class="setting-row"><label for="cfg-profile">Profile</label><select id="cfg-profile"></select></div>
+      <div class="settings-actions"><button id="profile-new">Save as new</button><button id="profile-delete">Delete profile</button></div>
       <button class="settings-danger" id="cfg-reset-layout">Reset layout to default</button>
     </div>
 
@@ -427,6 +416,30 @@ function withToken(url){
 }
 function api(path,opts){return fetch(withToken(path),opts)}
 
+// ---- Rumble ----------------------------------------------------------------
+// navigator.vibrate() has no intensity control, so strength is approximated
+// by the on/off duty cycle of a vibration pattern. Android Chrome only;
+// other browsers ignore this silently.
+function applyRumble(strong,weak,duration){
+  if(!navigator.vibrate)return;
+  const strength=Math.min(1,Math.max(strong,weak));
+  if(strength<=0){navigator.vibrate(0);return}
+  const cycle=50;
+  const on=Math.max(1,Math.round(cycle*strength));
+  const off=cycle-on;
+  const total=Math.min(duration>0?duration:1000,5000);
+  const pattern=[];
+  for(let t=0;t<total;t+=cycle)pattern.push(on,off);
+  navigator.vibrate(pattern);
+}
+
+// ---- Tap haptics -----------------------------------------------------------
+// A short buzz when a button is touched. Stored on this phone only.
+const tapHaptic={on:true,ms:25};
+try{Object.assign(tapHaptic,JSON.parse(localStorage.getItem('tapHapticV2')||'{}'))}catch(_){}
+function saveTapHaptic(){localStorage.setItem('tapHapticV2',JSON.stringify(tapHaptic))}
+function tapBuzz(){if(tapHaptic.on&&navigator.vibrate)return navigator.vibrate(tapHaptic.ms);return false}
+
 // ---- WebSocket -------------------------------------------------------------
 let ws=null,connected=false,reconnectTimer=null,connectAddr='';
 const statusEl=document.getElementById('status');
@@ -457,6 +470,8 @@ function connect(addr){
         document.getElementById('ping-val').textContent=rtt+' ms';
         pingSentAt=null;
       }
+      if(m.type==='rumble') applyRumble(m.strong||0, m.weak||0, m.duration||0);
+      if(m.status==='connected'&&m.slot)document.getElementById('slot-val').textContent='P'+m.slot;
     }catch(_){}
   };
   ws.onclose=()=>{
@@ -521,7 +536,7 @@ let pingSentAt=null,pingTimer=null;
 function setConnState(state){
   const dot=document.getElementById('conn-dot');
   dot.className='dot'+(state?' '+state:'');
-  if(state==='dead')document.getElementById('ping-val').textContent='--';
+  if(state==='dead'){document.getElementById('ping-val').textContent='--';document.getElementById('slot-val').textContent=''}
 }
 function startPing(){
   clearInterval(pingTimer);
@@ -556,7 +571,7 @@ document.querySelectorAll('.ctrl').forEach(el=>{
     }else{
       e.preventDefault();
       const btn=el.querySelector('[data-code]');
-      if(btn){btn.classList.add('active');keyDown(btn.dataset.code)}
+      if(btn){btn.classList.add('active');keyDown(btn.dataset.code);tapBuzz()}
     }
   },{passive:false});
 
@@ -624,7 +639,7 @@ function setupStick(zId, oId, kId, ax, ay, clickCode){
     if(isEditing)return;e.preventDefault();
     for(let t of e.changedTouches){if(t.identifier===activeId){
       const dt=Date.now()-t0;
-      if(!moved&&dt<180&&clickCode){keyDown(clickCode);keyUp(clickCode)}
+      if(!moved&&dt<180&&clickCode){keyDown(clickCode);keyUp(clickCode);tapBuzz()}
       center();break
     }}
   },{passive:false});
@@ -664,23 +679,24 @@ document.addEventListener('keyup',e=>{const c=keyMap[e.key];if(c){e.preventDefau
 
 // ---- Layout engine ---------------------------------------------------------
 const defaultLayout={
-  "left-stick":  {x:8,y:28,w:26,h:26},
-  "right-stick": {x:66,y:28,w:26,h:26},
-  "dpad-up":     {x:12,y:48,w:10,h:10},
-  "dpad-down":   {x:12,y:62,w:10,h:10},
-  "dpad-left":   {x:4,y:55,w:10,h:10},
-  "dpad-right":  {x:20,y:55,w:10,h:10},
-  "btn-a":       {x:78,y:62,w:10,h:10},
-  "btn-b":       {x:88,y:55,w:10,h:10},
-  "btn-x":       {x:68,y:55,w:10,h:10},
-  "btn-y":       {x:78,y:46,w:10,h:10},
-  "lb":          {x:12,y:3,w:9,h:6},
-  "rb":          {x:79,y:3,w:9,h:6},
-  "lt":          {x:3,y:3,w:7,h:6},
-  "rt":          {x:90,y:3,w:7,h:6},
-  "menu-back":   {x:34,y:86,w:9,h:5},
-  "menu-guide":  {x:45,y:86,w:9,h:5},
-  "menu-start":  {x:56,y:86,w:9,h:5},
+  "left-stick": {x:2.19,y:24.78,w:19.71,h:64.43},
+  "right-stick": {x:56.94,y:14.87,w:15.33,h:34.69},
+  "dpad-up": {x:21.9,y:39.65,w:8.76,h:14.87},
+  "dpad-down": {x:21.9,y:69.38,w:8.76,h:14.87},
+  "dpad-left": {x:21.9,y:54.52,w:8.76,h:14.87},
+  "dpad-right": {x:30.66,y:54.52,w:8.76,h:14.87},
+  "btn-a": {x:81.04,y:54.52,w:10.95,h:24.78},
+  "btn-b": {x:70.08,y:54.52,w:10.95,h:24.78},
+  "btn-x": {x:74.46,y:29.74,w:10.95,h:24.78},
+  "btn-y": {x:85.42,y:29.74,w:10.95,h:24.78},
+  "lb": {x:13.14,y:0,w:10.95,h:14.87},
+  "rb": {x:76.65,y:0,w:10.95,h:14.87},
+  "lt": {x:2.19,y:0,w:10.95,h:14.87},
+  "rt": {x:87.61,y:0,w:10.95,h:14.87},
+  "menu-back": {x:34,y:86,w:9,h:5},
+  "menu-guide": {x:45,y:86,w:9,h:5},
+  "menu-start": {x:56,y:86,w:9,h:5},
+  "_grid": 5,
 };
 let currentLayout={};
 // One lattice drives the visible grid, drag snapping and resize snapping.
@@ -729,8 +745,12 @@ function applyLayout(layout){
   }
 }
 
+// Layout profile in use (remembered on this phone).
+let currentProfile=localStorage.getItem('layoutProfile')||'Default';
+function layoutUrl(){return '/api/layout?name='+encodeURIComponent(currentProfile)}
+
 function loadLayout(){
-  api('/api/layout').then(r=>r.json()).then(data=>{
+  api(layoutUrl()).then(r=>r.json()).then(data=>{
     if(data&&Object.keys(data).length>0){
       currentLayout=data;
       // Grid below 2% makes the lattice too fine to snap to; fall back to the default.
@@ -767,12 +787,57 @@ document.getElementById('edit-btn').onclick=()=>{
   setEditing(true);
 };
 
-// ---- Hotkey menu -----------------------------------------------------------
-document.getElementById('menu-btn').onclick=()=>{
-  const menu=document.getElementById('hotkey-menu');
-  menu.classList.toggle('open');
-  document.getElementById('menu-btn').classList.toggle('active',menu.classList.contains('open'));
+// ---- Menu ------------------------------------------------------------------
+// Hidden by default. Tap the grip to open it. It closes after an action, on an
+// outside tap, on Escape, or after 8 seconds without any use.
+const menuEl=document.getElementById('menu');
+const menuHandle=document.getElementById('menu-handle');
+const menuPanel=document.getElementById('menu-panel');
+let menuIdleTimer=null;
+function armMenuIdle(){
+  clearTimeout(menuIdleTimer);
+  if(menuEl.classList.contains('open'))menuIdleTimer=setTimeout(()=>setMenu(false),8000);
+}
+function setMenu(open){
+  menuEl.classList.toggle('open',open);
+  menuHandle.setAttribute('aria-expanded',open?'true':'false');
+  if(open)armMenuIdle();else clearTimeout(menuIdleTimer);
+}
+menuHandle.onclick=()=>setMenu(!menuEl.classList.contains('open'));
+menuPanel.addEventListener('pointerdown',armMenuIdle);
+menuPanel.addEventListener('input',armMenuIdle);
+['edit-btn','fullscreen-btn','settings-btn'].forEach(id=>
+  document.getElementById(id).addEventListener('click',()=>setMenu(false)));
+document.addEventListener('pointerdown',e=>{if(!menuEl.contains(e.target))setMenu(false)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')setMenu(false)});
+
+// Buzz controls live in the menu.
+const buzzOn=document.getElementById('menu-buzz-on');
+const buzzMs=document.getElementById('menu-buzz-ms');
+const buzzMsV=document.getElementById('menu-buzz-ms-v');
+const buzzTest=document.getElementById('menu-buzz-test');
+const buzzNote=document.getElementById('menu-buzz-note');
+function syncBuzzUI(){
+  buzzOn.textContent='Buzz: '+(tapHaptic.on?'on':'off');
+  buzzOn.setAttribute('aria-pressed',tapHaptic.on?'true':'false');
+  buzzMs.value=tapHaptic.ms;
+  buzzMsV.textContent=tapHaptic.ms+' ms';
+  if(!navigator.vibrate){
+    buzzTest.disabled=true;buzzOn.disabled=true;
+    buzzNote.textContent='This browser has no vibration support (iPhone Safari does not). Use Android Chrome.';
+  }
+}
+buzzOn.onclick=()=>{tapHaptic.on=!tapHaptic.on;saveTapHaptic();syncBuzzUI();tapBuzz()};
+buzzMs.oninput=()=>{tapHaptic.ms=+buzzMs.value;buzzMsV.textContent=tapHaptic.ms+' ms'};
+buzzMs.onchange=()=>{saveTapHaptic();tapBuzz()};
+// Test reports what the browser said: accepted, refused, or no support.
+buzzTest.onclick=()=>{
+  if(!navigator.vibrate){buzzNote.textContent='No vibration support in this browser.';return}
+  const ok=navigator.vibrate(tapHaptic.ms);
+  buzzNote.textContent=ok?'Browser accepted the buzz. If you feel nothing, check the phone\'s touch-vibration setting.':'Browser refused the buzz.';
 };
+syncBuzzUI();
+
 // F12 toggles the game HUD overlay (MangoHud etc).
 document.getElementById('hk-f12').addEventListener('touchstart',e=>{
   e.preventDefault();e.stopPropagation();
@@ -785,7 +850,7 @@ document.getElementById('hk-f12').addEventListener('touchend',e=>{
 document.getElementById('edit-cancel').onclick=cancelEdit;
 document.getElementById('edit-save').onclick=()=>{
   currentLayout._grid=GRIDPCT;
-  api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
+  api(layoutUrl(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
     .then(r=>r.json()).then(r=>{if(r.status==='saved'){editSnapshot=null;setEditing(false)}})
     .catch(()=>{});
 };
@@ -814,7 +879,46 @@ document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
     else if(el.id==='cfg-grid'){setGrid(parseInt(el.value));v.textContent=GRID+'px'}
   });
 });
-document.getElementById('settings-btn').onclick=()=>{loadConfig();cfgOverlay.classList.add('open')};
+// Fill the profile picker from the server, keeping the current selection if it still exists.
+function refreshProfiles(){
+  return api('/api/layouts').then(r=>r.json()).then(d=>{
+    const names=d.profiles||['Default'];
+    if(!names.includes(currentProfile))currentProfile='Default';
+    const sel=document.getElementById('cfg-profile');
+    sel.innerHTML='';
+    names.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sel.appendChild(o)});
+    sel.value=currentProfile;
+  }).catch(()=>{});
+}
+function switchProfile(name){
+  if(isEditing)cancelEdit();
+  currentProfile=name;
+  localStorage.setItem('layoutProfile',name);
+  loadLayout();
+}
+document.getElementById('cfg-profile').onchange=e=>switchProfile(e.target.value);
+document.getElementById('profile-new').onclick=()=>{
+  const name=(prompt('Name for the new layout (letters, numbers, spaces, - and _):')||'').trim();
+  if(!name)return;
+  if(!/^[A-Za-z0-9][A-Za-z0-9 _-]{0,31}$/.test(name)){alert('Use 1-32 letters, numbers, spaces, - or _, starting with a letter or number.');return}
+  if(name.toLowerCase()==='default'){alert('"Default" is reserved.');return}
+  currentLayout._grid=GRIDPCT;
+  currentProfile=name;
+  localStorage.setItem('layoutProfile',name);
+  api(layoutUrl(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
+    .then(r=>r.json()).then(r=>{if(r.status==='saved')refreshProfiles()}).catch(()=>{});
+};
+document.getElementById('profile-delete').onclick=()=>{
+  if(currentProfile==='Default'){alert('The Default layout can\'t be deleted.');return}
+  if(!confirm('Delete the layout "'+currentProfile+'"?'))return;
+  api(layoutUrl(),{method:'DELETE'}).then(()=>{
+    currentProfile='Default';
+    localStorage.setItem('layoutProfile','Default');
+    return refreshProfiles();
+  }).then(()=>loadLayout()).catch(()=>{});
+};
+
+document.getElementById('settings-btn').onclick=()=>{loadConfig();refreshProfiles();cfgOverlay.classList.add('open')};
 document.getElementById('settings-close').onclick=()=>cfgOverlay.classList.remove('open');
 document.getElementById('settings-save').onclick=()=>{
   // Save server config
@@ -827,7 +931,7 @@ document.getElementById('settings-save').onclick=()=>{
     if(r.status==='saved'){
       // Save grid to layout.json
       currentLayout._grid=parseInt(document.getElementById('cfg-grid').value);
-      api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)}).catch(()=>{});
+      api(layoutUrl(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)}).catch(()=>{});
       cfgOverlay.classList.remove('open');
     }
   }).catch(()=>{});
@@ -836,7 +940,7 @@ document.getElementById('cfg-reset-layout').onclick=()=>{
   if(!confirm('Reset all controls to the default layout? Your saved layout will be overwritten.'))return;
   currentLayout=Object.assign({},defaultLayout);
   applyLayout(currentLayout);
-  api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(defaultLayout)}).catch(()=>{});
+  api(layoutUrl(),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(defaultLayout)}).catch(()=>{});
 };
 cfgOverlay.addEventListener('click',e=>{if(e.target===cfgOverlay)cfgOverlay.classList.remove('open')});
 </script>

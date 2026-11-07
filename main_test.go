@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 )
 
 func TestAxisValueTriggers(t *testing.T) {
@@ -131,5 +132,24 @@ func TestLanHostPort(t *testing.T) {
 		if got := lanHostPort(in[0], in[1]); got != want {
 			t.Errorf("lanHostPort(%q,%q)=%q want %q", in[0], in[1], got, want)
 		}
+	}
+}
+
+// Kernel ABI (64-bit): struct sizes and the ioctl numbers derived from them.
+func TestFFStructLayout(t *testing.T) {
+	if s := unsafe.Sizeof(ffEffect{}); s != 48 {
+		t.Errorf("ff_effect size %d, want 48", s)
+	}
+	if s := unsafe.Sizeof(uinputFFUpload{}); s != 104 {
+		t.Errorf("uinput_ff_upload size %d, want 104", s)
+	}
+	if s := unsafe.Sizeof(uinputFFErase{}); s != 12 {
+		t.Errorf("uinput_ff_erase size %d, want 12", s)
+	}
+	if uiBeginFFUpload != 0xc06855c8 {
+		t.Errorf("UI_BEGIN_FF_UPLOAD %#x, want 0xc06855c8", uiBeginFFUpload)
+	}
+	if uiEndFFUpload != 0x406855c9 {
+		t.Errorf("UI_END_FF_UPLOAD %#x, want 0x406855c9", uiEndFFUpload)
 	}
 }

@@ -35,4 +35,7 @@ That's it. The virtual controller appears on your PC, games detect it.
 |---|---|
 | `/api/config` | Read/change settings (needs `?token=` or `Authorization: Bearer`) |
 | `/api/layout` | Save/load control positions (same auth; must be a JSON object) |
+| `/api/layout?name=X` | Save/load/delete a named layout profile (`Default` = `layout.json`) |
+| `/api/layouts` | List layout profiles |
+| `/api/status` | Connected players: slot, IP, connect time |
 | `/ws` | Controller input (same auth) |

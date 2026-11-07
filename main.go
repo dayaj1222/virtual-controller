@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net"
@@ -267,17 +266,22 @@ func writeRaw(fd int, ev inputEvent) {
 // createUinput opens /dev/uinput, configures a virtual Xbox controller,
 // and returns the fd (or -1 on error).
 func createUinput() (int, error) {
-	fd, err := unix.Open("/dev/uinput", unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	// O_RDWR: we read force-feedback requests back from the device.
+	fd, err := unix.Open("/dev/uinput", unix.O_RDWR|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return -1, fmt.Errorf("open /dev/uinput: %w", err)
 	}
 
-	// Enable event types: keys + absolute axes
-	for _, bit := range []int{EvKey, EvAbs} {
+	// Enable event types: keys + absolute axes + force feedback
+	for _, bit := range []int{EvKey, EvAbs, EvFF} {
 		if err := ioctl(fd, uiSetEvbit, uintptr(bit)); err != nil {
 			unix.Close(fd)
 			return -1, fmt.Errorf("set evbit %d: %w", bit, err)
 		}
+	}
+	if err := ioctl(fd, uiSetFFBitReq, uintptr(FFRumble)); err != nil {
+		unix.Close(fd)
+		return -1, fmt.Errorf("set ffbit rumble: %w", err)
 	}
 
 	// Register all buttons
@@ -319,7 +323,8 @@ func createUinput() (int, error) {
 			Product: 0x028e, // Xbox 360 wired
 			Version: 0x0110,
 		},
-		Name: name,
+		Name:         name,
+		FFEffectsMax: ffMaxEffects,
 	}
 	if err := ioctl(fd, uiDevSetup, uintptr(unsafe.Pointer(&setup))); err != nil {
 		unix.Close(fd)
@@ -529,9 +534,27 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	defer destroyUinput(fd)
 	defer log.Printf("virtual controller destroyed (fd=%d)", fd)
 
+	// Assign a player slot for this connection (released on return).
+	p := addPlayer(r.RemoteAddr)
+	defer removePlayer(p)
+
+	// The rumble reader runs in its own goroutine, so all WebSocket writes
+	// go through writeMu. It must stop before destroyUinput closes the fd.
+	var writeMu sync.Mutex
+	writeJSON := func(v any) {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return
+		}
+		writeMu.Lock()
+		conn.WriteMessage(websocket.TextMessage, b)
+		writeMu.Unlock()
+	}
+	rb := startRumbler(fd, writeJSON)
+	defer rb.stop()
+
 	// Confirm connection.
-	conn.WriteMessage(websocket.TextMessage,
-		[]byte(`{"status":"connected","vendor":"Microsoft","product":"Xbox 360 Controller"}`))
+	writeJSON(map[string]any{"status": "connected", "vendor": "Microsoft", "product": "Xbox 360 Controller", "slot": p.Slot})
 
 	// Read messages and push to the ordered writer.
 	for {
@@ -625,7 +648,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 		case "ping":
 			// Reply so the client can measure round-trip latency.
-			conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
+			writeJSON(map[string]string{"type": "pong"})
 		}
 	}
 }
@@ -728,41 +751,7 @@ var layoutPath = "layout.json"
 
 const maxLayoutBytes = 64 << 10
 
-func layoutHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		data, err := os.ReadFile(layoutPath)
-		if err != nil {
-			w.Write([]byte("{}"))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-		return
-	}
-
-	if r.Method == "PUT" {
-		body, err := io.ReadAll(io.LimitReader(r.Body, maxLayoutBytes+1))
-		if err != nil || len(body) > maxLayoutBytes {
-			http.Error(w, `{"error":"read or too large"}`, 400)
-			return
-		}
-		// Must be a JSON object; the client reads it as a map of control positions.
-		var probe map[string]json.RawMessage
-		if err := json.Unmarshal(body, &probe); err != nil || probe == nil {
-			http.Error(w, `{"error":"layout must be a JSON object"}`, 400)
-			return
-		}
-		if err := os.WriteFile(layoutPath, body, 0644); err != nil {
-			http.Error(w, `{"error":"write"}`, 500)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
-		return
-	}
-
-	http.Error(w, `{"error":"method not allowed"}`, 405)
-}
+// layoutHandler is implemented in layouts.go (named profiles).
 
 // ---- Sleep inhibitor -------------------------------------------------------
 
@@ -900,6 +889,8 @@ func main() {
 	mux.HandleFunc("/ws", requireAuth(wsHandler))
 	mux.HandleFunc("/api/config", requireAuth(configHandler))
 	mux.HandleFunc("/api/layout", requireAuth(layoutHandler))
+	mux.HandleFunc("/api/layouts", requireAuth(profilesHandler))
+	mux.HandleFunc("/api/status", requireAuth(statusHandler))
 	mux.Handle("/", noCache(http.FileServer(http.Dir("client"))))
 
 	server := &http.Server{Addr: addr, Handler: mux}
