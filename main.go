@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -43,6 +47,7 @@ func ioc(dir, typ, nr, size int) uintptr {
 	return uintptr(dir)<<iocDShift | uintptr(typ)<<iocTShift | uintptr(nr)<<iocNShift | uintptr(size)<<iocSShift
 }
 func iow(typ byte, nr, size int) uintptr { return ioc(iocWrite, int(typ), nr, size) }
+
 // _IO(type, nr) — no data, no direction.
 func ioctlIO(typ byte, nr int) uintptr { return ioc(iocNone, int(typ), nr, 0) }
 
@@ -151,9 +156,9 @@ var allButtons = []uint16{
 }
 
 type axisDef struct {
-	Code          uint16
-	Min, Max      int32
-	Fuzz, Flat    int32
+	Code       uint16
+	Min, Max   int32
+	Fuzz, Flat int32
 }
 
 // Matches the xpad kernel driver's axis layout.
@@ -176,6 +181,20 @@ func init() {
 	for _, a := range allAxes {
 		axisByCode[a.Code] = a
 	}
+}
+
+// axisValue converts a client value into the kernel range for def.
+// Sticks and hat axes arrive as -1..1 and are centred on zero; triggers arrive
+// as 0..1 and map straight onto 0..Max (0.5 is half-travel, not 75%).
+func axisValue(def axisDef, fval float64) int32 {
+	fval = math.Max(-1, math.Min(1, fval))
+	var f float64
+	if def.Min == 0 {
+		f = fval * float64(def.Max)
+	} else {
+		f = float64(def.Min) + (fval+1)/2*(float64(def.Max)-float64(def.Min))
+	}
+	return int32(math.Max(float64(def.Min), math.Min(float64(def.Max), f)))
 }
 
 // ---- WebSocket protocol -----------------------------------------------------
@@ -324,34 +343,13 @@ func destroyUinput(fd int) {
 	if fd < 0 {
 		return
 	}
-	// Release everything
-	reset := []inputEvent{
-		{Type: EvKey, Code: BtnA, Value: 0},
-		{Type: EvKey, Code: BtnB, Value: 0},
-		{Type: EvKey, Code: BtnX, Value: 0},
-		{Type: EvKey, Code: BtnY, Value: 0},
-		{Type: EvKey, Code: BtnTL, Value: 0},
-		{Type: EvKey, Code: BtnTR, Value: 0},
-		{Type: EvKey, Code: BtnSelect, Value: 0},
-		{Type: EvKey, Code: BtnStart, Value: 0},
-		{Type: EvKey, Code: BtnMode, Value: 0},
-		{Type: EvKey, Code: BtnThumbL, Value: 0},
-		{Type: EvKey, Code: BtnThumbR, Value: 0},
-		{Type: EvKey, Code: BtnDPadUp, Value: 0},
-		{Type: EvKey, Code: BtnDPadDown, Value: 0},
-		{Type: EvKey, Code: BtnDPadLeft, Value: 0},
-		{Type: EvKey, Code: BtnDPadRight, Value: 0},
-		{Type: EvAbs, Code: AbsX, Value: 0},
-		{Type: EvAbs, Code: AbsY, Value: 0},
-		{Type: EvAbs, Code: AbsRX, Value: 0},
-		{Type: EvAbs, Code: AbsRY, Value: 0},
-		{Type: EvAbs, Code: AbsZ, Value: 0},
-		{Type: EvAbs, Code: AbsRZ, Value: 0},
-		{Type: EvAbs, Code: AbsHat0X, Value: 0},
-		{Type: EvAbs, Code: AbsHat0Y, Value: 0},
+	// Release every button and centre every axis, driven by the same tables
+	// used at creation so the lists can't drift apart.
+	for _, btn := range allButtons {
+		writeRaw(fd, inputEvent{Type: EvKey, Code: btn, Value: 0})
 	}
-	for _, ev := range reset {
-		writeRaw(fd, ev)
+	for _, ax := range allAxes {
+		writeRaw(fd, inputEvent{Type: EvAbs, Code: ax.Code, Value: 0})
 	}
 	writeRaw(fd, inputEvent{Type: EvSync, Code: 0, Value: 0})
 	ioctl(fd, uiDevDestroy, 0)
@@ -410,10 +408,10 @@ func createKeyboard() (int, error) {
 // until the ticker fires (~8 ms).
 
 type orderedWriter struct {
-	fd      int
-	events  chan uinputEvent
-	closeCh chan struct{}
-	wg      sync.WaitGroup
+	fd       int
+	events   chan uinputEvent
+	closeCh  chan struct{}
+	wg       sync.WaitGroup
 	interval time.Duration
 }
 
@@ -429,11 +427,10 @@ func newOrderedWriter(fd int, interval time.Duration) *orderedWriter {
 	return ow
 }
 
+// push blocks rather than dropping: a lost key-up would leave the button held
+// down on the PC. Only the read loop pushes, and it stops before close().
 func (ow *orderedWriter) push(ev uinputEvent) {
-	select {
-	case ow.events <- ev:
-	default:
-	}
+	ow.events <- ev
 }
 
 func (ow *orderedWriter) close() {
@@ -588,22 +585,15 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 					fval = 0
 				}
 			}
-			var v int32
-			if def, ok := axisByCode[code]; ok {
-				if fval >= -1 && fval <= 1 && fval != 0 {
-					rng := float64(def.Max) - float64(def.Min)
-					v = int32(float64(def.Min) + (fval+1)/2*rng)
-				} else {
-					v = int32(fval)
-				}
-				if v < def.Min {
-					v = def.Min
-				}
-				if v > def.Max {
-					v = def.Max
-				}
+			// Triggers: TRIGGER_THRESHOLD sets how far the finger must travel for a full press.
+			if code == AbsZ || code == AbsRZ {
+				fval = math.Min(1, fval/appCfg.TriggerMax)
 			}
-			ow.push(uinputEvent{Type: EvAbs, Code: code, Value: v})
+			def, ok := axisByCode[code]
+			if !ok {
+				continue
+			}
+			ow.push(uinputEvent{Type: EvAbs, Code: code, Value: axisValue(def, fval)})
 			lastInput.Store(time.Now().UnixNano())
 
 		case "kbkey":
@@ -643,21 +633,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 // ---- HTTP config API -------------------------------------------------------
 
 func configHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(204)
-		return
-	}
-
+	// Same-origin only: no CORS headers, so other sites can't read or write config.
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"listen":           appCfg.ListenAddr,
+			"listen":            appCfg.ListenAddr,
 			"flush_interval_ms": appCfg.FlushInterval.Milliseconds(),
-			"stick_deadzone":   appCfg.StickDeadzone,
+			"stick_deadzone":    appCfg.StickDeadzone,
 			"trigger_threshold": appCfg.TriggerMax,
 		})
 		return
@@ -676,27 +658,32 @@ func configHandler(w http.ResponseWriter, r *http.Request) {
 			switch k {
 			case "stick_deadzone":
 				if f, ok := v.(float64); ok {
-					appCfg.StickDeadzone = f
-					upsertEnv(&lines, "STICK_DEADZONE", fmt.Sprintf("%.2f", f))
+					appCfg.StickDeadzone = clampDeadzone(f)
+					upsertEnv(&lines, "STICK_DEADZONE", fmt.Sprintf("%.2f", appCfg.StickDeadzone))
 				}
 			case "trigger_threshold":
 				if f, ok := v.(float64); ok {
-					appCfg.TriggerMax = f
-					upsertEnv(&lines, "TRIGGER_THRESHOLD", fmt.Sprintf("%.2f", f))
+					appCfg.TriggerMax = clampTrigger(f)
+					upsertEnv(&lines, "TRIGGER_THRESHOLD", fmt.Sprintf("%.2f", appCfg.TriggerMax))
 				}
 			case "flush_interval_ms":
 				if f, ok := v.(float64); ok {
-					appCfg.FlushInterval = time.Duration(f) * time.Millisecond
-					upsertEnv(&lines, "FLUSH_INTERVAL_MS", fmt.Sprintf("%.0f", f))
+					// Read by each new connection's writer; a zero here would panic the ticker.
+					appCfg.FlushInterval = clampFlush(time.Duration(f) * time.Millisecond)
+					upsertEnv(&lines, "FLUSH_INTERVAL_MS", fmt.Sprintf("%d", appCfg.FlushInterval.Milliseconds()))
 				}
 			case "listen":
-				if s, ok := v.(string); ok {
+				if s, ok := v.(string); ok && s != "" {
 					upsertEnv(&lines, "LISTEN", s)
 					// Note: listen address requires restart
 				}
 			}
 		}
-		writeEnvLines(".env", lines)
+		if err := writeEnvLines(".env", lines); err != nil {
+			log.Printf("config: save .env: %v", err)
+			http.Error(w, `{"error":"write"}`, 500)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
@@ -714,8 +701,9 @@ func readEnvLines(path string) []string {
 	return strings.Split(string(data), "\n")
 }
 
-func writeEnvLines(path string, lines []string) {
-	os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
+// writeEnvLines holds the auth token, so the file stays owner-only.
+func writeEnvLines(path string, lines []string) error {
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0600)
 }
 
 // upsertEnv replaces an existing KEY=value line or appends it.
@@ -738,12 +726,9 @@ func upsertEnv(lines *[]string, key, value string) {
 
 var layoutPath = "layout.json"
 
-func layoutHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	if r.Method == "OPTIONS" { w.WriteHeader(204); return }
+const maxLayoutBytes = 64 << 10
 
+func layoutHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		data, err := os.ReadFile(layoutPath)
 		if err != nil {
@@ -756,9 +741,15 @@ func layoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "PUT" {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, `{"error":"read"}`, 400)
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxLayoutBytes+1))
+		if err != nil || len(body) > maxLayoutBytes {
+			http.Error(w, `{"error":"read or too large"}`, 400)
+			return
+		}
+		// Must be a JSON object; the client reads it as a map of control positions.
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal(body, &probe); err != nil || probe == nil {
+			http.Error(w, `{"error":"layout must be a JSON object"}`, 400)
 			return
 		}
 		if err := os.WriteFile(layoutPath, body, 0644); err != nil {
@@ -766,7 +757,7 @@ func layoutHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status":"saved"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "saved"})
 		return
 	}
 
@@ -797,6 +788,50 @@ func startInhibitor() {
 	log.Print("dbus idle inhibitor started")
 }
 
+// ---- Pairing token ---------------------------------------------------------
+// Anyone on the LAN could otherwise inject input or rewrite config. Every
+// endpoint requires the token: the QR code and startup URL carry it as ?token=.
+
+var authToken string
+
+// ensureAuthToken returns the configured AUTH_TOKEN, or generates one and
+// stores it in .env on first run so the QR code stays valid across restarts.
+func ensureAuthToken() string {
+	if appCfg.AuthToken != "" {
+		return appCfg.AuthToken
+	}
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("auth token: %v", err)
+	}
+	tok := hex.EncodeToString(b)
+	lines := readEnvLines(".env")
+	upsertEnv(&lines, "AUTH_TOKEN", tok)
+	if err := writeEnvLines(".env", lines); err != nil {
+		log.Fatalf("auth token: save .env: %v", err)
+	}
+	log.Printf("generated AUTH_TOKEN and saved it to .env")
+	return tok
+}
+
+func authorized(r *http.Request) bool {
+	got := r.URL.Query().Get("token")
+	if got == "" {
+		got = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(authToken)) == 1
+}
+
+func requireAuth(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(r) {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		h(w, r)
+	}
+}
+
 // ---- Startup helpers -------------------------------------------------------
 
 func getLocalIP() string {
@@ -810,6 +845,15 @@ func getLocalIP() string {
 		}
 	}
 	return ""
+}
+
+// lanHostPort joins the LAN IP with the port from LISTEN. LISTEN may be ":9449"
+// or a host:port such as "127.0.0.1:9449", so only the port is kept.
+func lanHostPort(ip, listen string) string {
+	if i := strings.LastIndex(listen, ":"); i >= 0 {
+		return ip + listen[i:]
+	}
+	return ip + ":" + listen
 }
 
 // noCache wraps an http.Handler to prevent caching of the served files.
@@ -826,13 +870,20 @@ func noCache(h http.Handler) http.Handler {
 
 var appCfg config
 
+// version is set at release time with -ldflags "-X main.version=vX.Y.Z".
+var version = "dev"
+
 func main() {
 	appCfg = loadConfig()
+	authToken = ensureAuthToken()
 	startInhibitor()
+	log.Printf("controller-server %s", version)
 
-	// Print a QR code with the LAN URL so the user can scan from their phone.
+	addr := appCfg.ListenAddr
+
+	// Print a QR code with the LAN URL (token included) so the user can scan from their phone.
 	if ip := getLocalIP(); ip != "" {
-		url := fmt.Sprintf("http://%s%s", ip, appCfg.ListenAddr)
+		url := fmt.Sprintf("http://%s/?token=%s", lanHostPort(ip, addr), authToken)
 		qr, err := qrcode.New(url, qrcode.Medium)
 		if err == nil {
 			log.Printf("📱 Scan from your phone: %s", url)
@@ -842,15 +893,13 @@ func main() {
 		}
 	}
 
-	addr := appCfg.ListenAddr
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", wsHandler)
-	mux.HandleFunc("/api/config", configHandler)
-	mux.HandleFunc("/api/layout", layoutHandler)
+	mux.HandleFunc("/ws", requireAuth(wsHandler))
+	mux.HandleFunc("/api/config", requireAuth(configHandler))
+	mux.HandleFunc("/api/layout", requireAuth(layoutHandler))
 	mux.Handle("/", noCache(http.FileServer(http.Dir("client"))))
 
 	server := &http.Server{Addr: addr, Handler: mux}
@@ -862,7 +911,7 @@ func main() {
 	}()
 
 	log.Printf("🚀 controller-server listening on %s", addr)
-	log.Printf("   Phone client:  ws://<your-pc-ip>%s/ws", addr)
+	log.Printf("   Phone client:  ws://%s/ws?token=%s", lanHostPort(getLocalIP(), addr), authToken)
 	log.Printf("   Web client:    http://localhost%s", addr)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("serve: %v", err)

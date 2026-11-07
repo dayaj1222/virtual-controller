@@ -11,8 +11,20 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#1e1e2e;--surface:#313244;--surface2:#45475a;--text:#cdd6f4;
-    --subtext:#a6adc8;--accent:#89b4fa;--green:#a6e3a1;--red:#f38ba8;--yellow:#f9e2af
+    --subtext:#a6adc8;--accent:#89b4fa;--green:#a6e3a1;--red:#f38ba8;--yellow:#f9e2af;
+    /* Accent as text on --surface2 only clears 4.3:1, so text on that
+       surface uses a lightened accent instead. */
+    --accent-on-surface2:#a8c7fc;
+    /* Interactive control floor. 44px is the smallest reliable touch target;
+       edit-mode handles sit on the same floor. */
+    --tap:44px;
+    --radius:8px;--radius-sm:6px;--radius-lg:12px;
+    --ease:cubic-bezier(.2,.8,.2,1)
   }
+  /* Authored focus ring. The default UA outline belongs to no design system. */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-sm)}
+  ::selection{background:rgba(137,180,250,.3)}
+  svg{display:block;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
   html,body{width:100%;height:100%;background:var(--bg);color:var(--text);overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
   body{display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}
 
@@ -21,199 +33,308 @@
     position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:1rem;background:var(--bg);z-index:100;padding:1.5rem;text-align:center
   }
-  #info-overlay h1{font-size:1.3rem}
-  #info-overlay .sub{color:var(--subtext);font-size:.85rem;max-width:280px;line-height:1.4}
-  #info-overlay .ip{color:var(--accent);font-size:.9rem;font-weight:600}
+  #info-overlay .mark{width:44px;height:44px;color:var(--accent);opacity:.9}
+  #info-overlay h1{font-size:1.15rem;font-weight:600;letter-spacing:-.01em}
+  #info-overlay .sub{color:var(--subtext);font-size:.85rem;max-width:30ch;line-height:1.5}
   #info-overlay input{
-    background:var(--surface);border:1px solid var(--surface2);border-radius:8px;
-    padding:10px 14px;color:var(--text);font-size:1rem;width:220px;text-align:center
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius);
+    padding:0 14px;height:var(--tap);color:var(--text);font-size:1rem;width:min(260px,80vw);
+    text-align:center;font-variant-numeric:tabular-nums
   }
+  #info-overlay input::placeholder{color:var(--subtext);opacity:.75}
+  #info-overlay input:focus{border-color:var(--accent);outline:none}
+  .overlay-actions{display:flex;gap:8px}
   #info-overlay button{
-    background:var(--accent);border:none;border-radius:8px;padding:10px 28px;
-    color:var(--bg);font-weight:600;font-size:1rem;cursor:pointer
+    background:var(--accent);border:none;border-radius:var(--radius);
+    height:var(--tap);padding:0 24px;color:var(--bg);font-weight:600;font-size:.95rem;
+    cursor:pointer;transition:filter .12s var(--ease),transform .12s var(--ease)
   }
-  #info-overlay button:disabled{opacity:.4}
-  #status{font-size:.8rem;color:var(--subtext)}
+  #info-overlay button:active:not(:disabled){filter:brightness(1.15);transform:translateY(1px)}
+  #info-overlay button:disabled{opacity:.35;cursor:not-allowed}
+  #info-overlay button.ghost{background:var(--surface);color:var(--text)}
+  #status{font-size:.8rem;color:var(--subtext);min-height:1.2em;font-variant-numeric:tabular-nums}
   #status.error{color:var(--red)}
-  .rotate-hint{font-size:.8rem;color:var(--yellow);margin-top:8px;display:none}
-  .rotate-hint.show{display:block}
+  #status.ok{color:var(--green)}
+  .rotate-hint{font-size:.8rem;color:var(--yellow);display:none;align-items:center;gap:6px}
+  .rotate-hint.show{display:flex}
 
   /* ---- Gamepad ---- */
   .gamepad{
     position:relative;width:100%;height:100%;display:none
   }
   .gamepad.show{display:block}
-  .gamepad.edit-mode .ctrl{border:1px dashed var(--accent);background:rgba(137,180,250,.08);border-radius:8px}
+  .gamepad.edit-mode .ctrl{border:1px dashed var(--accent);background:rgba(137,180,250,.08);border-radius:var(--radius)}
   .gamepad.edit-mode .ctrl::after{
-    content:'';position:absolute;right:2px;bottom:2px;width:20px;height:20px;
-    background:var(--accent);border-radius:3px;opacity:.5;touch-action:none;z-index:5
+    content:'';position:absolute;right:-2px;bottom:-2px;width:28px;height:28px;
+    border-radius:var(--radius-sm);opacity:.9;touch-action:none;z-index:5;
+    background-color:var(--accent);
+    background-image:linear-gradient(135deg,transparent 44%,var(--bg) 44%,var(--bg) 56%,transparent 56%),
+                     linear-gradient(135deg,transparent 68%,var(--bg) 68%,var(--bg) 80%,transparent 80%);
+    background-repeat:no-repeat;background-position:center;background-size:13px 13px
   }
-  .gamepad.edit-mode{background-image:linear-gradient(rgba(137,180,250,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(137,180,250,.08) 1px,transparent 1px);background-size:5% 5%}
+  /* Grid overlay is drawn in real pixels on a fixed square pitch, so cells are
+     squares regardless of the viewport aspect ratio. */
+  .gamepad.edit-mode::before{
+    content:'';position:absolute;inset:0;pointer-events:none;z-index:1;
+    background-image:linear-gradient(rgba(137,180,250,.16) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(137,180,250,.16) 1px,transparent 1px);
+    background-size:var(--gridpx,20px) var(--gridpx,20px)
+  }
+  .gamepad.edit-mode .ctrl{z-index:2}
 
   /* ---- Top floating buttons ---- */
+  /* Toolbar sits above the controls it can overlap in narrow landscape. */
   #top-pill{
-    position:absolute;top:4px;left:50%;transform:translateX(-50%);z-index:20;
-    display:flex;gap:3px;padding:2px 6px;border-radius:12px;
-    background:rgba(49,50,68,.35);backdrop-filter:blur(4px);
-    -webkit-backdrop-filter:blur(4px)
+    position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:26;
+    display:flex;gap:2px;padding:3px;border-radius:var(--radius-lg);
+    background:rgba(49,50,68,.55);border:1px solid var(--surface2);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)
   }
+  /* 44px hit area via width/height; the visible glyph stays small and quiet. */
   .top-btn{
-    border:none;border-radius:8px;padding:2px 8px;font-size:.6rem;
-    color:var(--text);opacity:.5;background:transparent;cursor:pointer;line-height:1.7
+    position:relative;border:none;border-radius:var(--radius-sm);
+    width:var(--tap);height:36px;display:flex;align-items:center;justify-content:center;
+    color:var(--subtext);background:transparent;cursor:pointer;
+    transition:color .12s var(--ease),background .12s var(--ease)
   }
-  .top-btn:active,.top-btn.active{opacity:1;background:rgba(137,180,250,.25);color:var(--accent)}
+  .top-btn svg{width:18px;height:18px}
+  .top-btn::after{
+    content:'';position:absolute;left:50%;bottom:-4px;width:16px;height:2px;
+    border-radius:2px;background:var(--accent);transform:translateX(-50%) scaleX(0);
+    transition:transform .16s var(--ease)
+  }
+  .top-btn:hover{color:var(--text)}
+  .top-btn:active,.top-btn.active{color:var(--accent);background:rgba(137,180,250,.14)}
+  .top-btn.active::after{transform:translateX(-50%) scaleX(1)}
 
   /* ---- Hotkey menu ---- */
   #hotkey-menu{
-    position:absolute;top:30px;left:50%;transform:translateX(-50%);z-index:25;
-    display:none;gap:6px;padding:8px;border-radius:10px;
-    background:rgba(49,50,68,.9);backdrop-filter:blur(4px);
-    -webkit-backdrop-filter:blur(4px);flex-wrap:wrap;max-width:90%
+    position:absolute;top:46px;left:50%;transform:translateX(-50%);z-index:25;
+    display:none;gap:6px;padding:8px;border-radius:var(--radius-lg);
+    background:rgba(49,50,68,.94);border:1px solid var(--surface2);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);flex-wrap:wrap;max-width:90%
   }
   #hotkey-menu.open{display:flex}
   .hk-btn{
-    background:var(--surface2);border:1px solid var(--accent);border-radius:8px;
-    color:var(--accent);font-size:.8rem;font-weight:700;padding:10px 16px;cursor:pointer;
-    min-width:56px
+    background:var(--surface2);border:1px solid var(--accent);border-radius:var(--radius-sm);
+    color:var(--accent-on-surface2);font-size:.8rem;font-weight:700;height:var(--tap);padding:0 18px;
+    cursor:pointer;min-width:64px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace
   }
   .hk-btn:active,.hk-btn.active{background:var(--accent);color:var(--bg)}
 
   /* ---- Connection info log ---- */
+  /* Saved layouts put RB/RT top-right, so the readout takes a second row
+     and never sits on top of a control. */
   #conn-log{
-    position:absolute;top:6px;right:6px;z-index:24;
-    font-size:.6rem;color:var(--subtext);padding:2px 6px;
-    background:rgba(49,50,68,.4);border-radius:6px;pointer-events:none
+    position:absolute;bottom:10px;left:12px;z-index:24;
+    display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;
+    font-size:.72rem;color:var(--subtext);font-variant-numeric:tabular-nums;
+    background:rgba(49,50,68,.55);border:1px solid var(--surface2);
+    border-radius:999px;pointer-events:none
   }
+  #conn-log .dot{width:6px;height:6px;border-radius:50%;background:var(--subtext);flex:none}
+  #conn-log .dot.live{background:var(--green);box-shadow:0 0 0 3px rgba(166,227,161,.18)}
+  #conn-log .dot.dead{background:var(--red);box-shadow:0 0 0 3px rgba(243,139,168,.18)}
 
   /* Control wrappers */
   .ctrl{position:absolute;touch-action:none}
   .ctrl-inner{width:100%;height:100%;position:relative}
+  /* Face-button wrappers centre their square disc. */
+  .ctrl[data-id^="btn-"] .ctrl-inner{display:grid;place-items:center}
 
   /* Shoulder / trigger */
   .shl{
-    background:var(--surface);border:1px solid var(--surface2);border-radius:6px;
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-sm);
     width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-    font-size:.65rem;font-weight:600;transition:background .05s
+    font-size:.7rem;font-weight:600;color:var(--subtext);
+    transition:background .08s var(--ease),color .08s var(--ease),border-color .08s var(--ease)
   }
-  .shl:active,.shl.active{background:var(--accent);color:var(--bg)}
+  .shl:active,.shl.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
   .trg{
-    background:var(--surface);border:1px solid var(--surface2);border-radius:6px;
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-sm);
     width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-    font-size:.6rem;position:relative;overflow:hidden
+    font-size:.7rem;font-weight:600;color:var(--subtext);position:relative;overflow:hidden;
+    transition:color .08s var(--ease),border-color .08s var(--ease)
   }
-  .trg-fill{position:absolute;bottom:0;left:0;right:0;background:var(--accent);height:0%;opacity:.4}
-  .trg-lbl{position:relative;z-index:1}
+  .trg-fill{position:absolute;bottom:0;left:0;right:0;background:var(--accent);height:0%;opacity:.35}
+  .trg-lbl{position:relative;z-index:1;font-variant-numeric:tabular-nums}
+  .trg.active{border-color:var(--accent);color:var(--text)}
 
-  /* Sticks — zone-based: whole rect is hit area, press point becomes center */
+  /* Sticks: zone-based. Whole rect is the hit area, press point becomes center. */
   .stick-zone{
     width:100%;height:100%;position:relative;touch-action:none;
-    background:var(--surface);border:1px solid var(--surface2);border-radius:8px
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius);
+    transition:border-color .1s var(--ease)
   }
+  .stick-zone.active{border-color:var(--accent)}
   .stick-zone .stick-origin{
     position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;
     border:2px solid var(--accent);border-radius:50%;pointer-events:none;
-    background:rgba(137,180,250,.25);opacity:0;transition:opacity .08s
+    background:rgba(137,180,250,.25);opacity:0;transition:opacity .08s var(--ease)
   }
   .stick-zone .stick-origin.show{opacity:1}
   .stick-knob{
     position:absolute;width:28px;height:28px;margin:-14px 0 0 -14px;
     background:var(--accent);border-radius:50%;pointer-events:none;
-    opacity:0;transition:opacity .08s
+    opacity:0;transition:opacity .08s var(--ease);
+    box-shadow:0 2px 8px rgba(0,0,0,.35)
   }
   .stick-knob.show{opacity:1}
-  .gamepad.edit-mode .stick-zone{background:rgba(137,180,250,.12);border:1px dashed var(--accent);border-radius:8px}
+  .gamepad.edit-mode .stick-zone{background:rgba(137,180,250,.12);border:1px dashed var(--accent)}
 
   /* Generic button filling its wrapper */
-  .btn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;transition:background .05s;touch-action:none}
-  .btn:active,.btn.active{filter:brightness(1.4)}
+  .btn{width:100%;height:100%;display:flex;align-items:center;justify-content:center;touch-action:none;transition:filter .08s var(--ease)}
+  .btn.active{filter:brightness(1.4)}
 
   /* D-pad directions */
-  .btn.dir{background:var(--surface);border:2px solid var(--surface2);border-radius:6px;font-size:1rem;color:var(--subtext)}
-  .btn.dir:active,.btn.dir.active{background:var(--accent);color:var(--bg)}
+  .btn.dir{background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-sm);color:var(--subtext);transition:background .08s var(--ease),color .08s var(--ease),border-color .08s var(--ease)}
+  .btn.dir:active,.btn.dir.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+  /* Saved d-pad cells are wider than tall, so the chevron is capped on both axes. */
+  .btn.dir svg{width:min(60%,28px);height:min(60%,28px);stroke-width:2.25}
+  /* Saved d-pad layouts leave a percent or two between the four cells, which
+     shows as a gap across the cross. A hairline ring closes it at any spacing. */
+  .ctrl[data-id^="dpad-"] .btn.dir{box-shadow:0 0 0 1px var(--surface2)}
 
-  /* Face buttons */
-  .btn.fc{border-radius:50%;border:2px solid var(--surface2);font-weight:700;font-size:.8rem;width:100%;height:100%}
-  .btn.fc:active,.btn.fc.active{filter:brightness(1.5)}
-  .btn.fa{background:var(--green);color:#000}
-  .btn.fb{background:var(--red);color:#000}
-  .btn.fx{background:var(--accent);color:#000}
-  .btn.fy{background:var(--yellow);color:#000}
+  /* Face buttons: letter sits on a tinted disc, not a saturated fill.
+     Saved layouts are not square, so the disc is a square sized to the
+     smaller axis and centred, instead of an ellipse. */
+  .btn.fc{
+    border-radius:50%;border:2px solid currentColor;font-weight:700;font-size:.85rem;
+    background:var(--surface);position:absolute;top:50%;left:50%;
+    width:min(100%,var(--fc,56px));height:min(100%,var(--fc,56px));
+    transform:translate(-50%,-50%);
+    transition:background .08s var(--ease),transform .08s var(--ease)
+  }
+  .btn.fc.active{background:currentColor;transform:translate(-50%,-50%) scale(.94)}
+  .btn.fc.active span{color:var(--bg)}
+  .btn.fc span{color:currentColor;transition:color .08s var(--ease)}
+  .btn.fa{color:var(--green)}
+  .btn.fb{color:var(--red)}
+  .btn.fx{color:var(--accent)}
+  .btn.fy{color:var(--yellow)}
 
   /* Menu */
   .m-btn{
-    background:var(--surface);border:1px solid var(--surface2);border-radius:4px;
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-sm);
     width:100%;height:100%;display:flex;align-items:center;justify-content:center;
-    font-size:.55rem;color:var(--subtext);transition:background .05s
+    font-size:.7rem;font-weight:600;color:var(--subtext);letter-spacing:.01em;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;
+    transition:background .08s var(--ease),color .08s var(--ease),border-color .08s var(--ease)
   }
-  .m-btn:active,.m-btn.active{background:var(--accent);color:var(--bg)}
+  .m-btn:active,.m-btn.active{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+  .m-btn svg{width:14px;height:14px}
 
 
   /* ---- Aspect-ratio helpers ---- */
 
   /* Edit bar */
   #edit-bar{
-    position:absolute;bottom:0;left:0;right:0;height:26px;z-index:30;
-    display:none;justify-content:center;align-items:center;gap:6px;
-    background:rgba(49,50,68,.7)
+    position:absolute;bottom:0;left:0;right:0;height:56px;z-index:30;
+    display:none;align-items:center;gap:8px;
+    padding:0 16px env(safe-area-inset-bottom,0);
+    background:linear-gradient(transparent,rgba(30,30,46,.92) 42%)
   }
   .gamepad.edit-mode #edit-bar{display:flex}
   #edit-bar button{
-    padding:3px 12px;border:none;border-radius:4px;font-weight:600;font-size:.65rem;cursor:pointer
+    height:40px;padding:0 22px;border:none;border-radius:var(--radius);
+    font-weight:600;font-size:.8rem;cursor:pointer;flex:none;
+    transition:filter .12s var(--ease),transform .12s var(--ease)
   }
-  #edit-save{background:var(--green);color:#000}
+  #edit-bar button:active{transform:translateY(1px)}
+  #edit-save{background:var(--green);color:var(--bg)}
   #edit-cancel{background:var(--surface2);color:var(--text)}
+  #edit-hint{font-size:.7rem;color:var(--subtext);margin-right:auto}
 
   /* Settings overlay */
   #settings-overlay{
-    position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;
-    display:none;align-items:center;justify-content:center
+    position:fixed;inset:0;background:rgba(17,17,27,.72);z-index:200;
+    display:none;align-items:center;justify-content:center;padding:16px;
+    backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)
   }
   #settings-overlay.open{display:flex}
   .settings-panel{
-    background:var(--surface);border:1px solid var(--surface2);border-radius:12px;
-    padding:20px;width:280px;max-width:90%
+    background:var(--surface);border:1px solid var(--surface2);border-radius:var(--radius-lg);
+    padding:18px;width:min(340px,92vw);max-height:88dvh;overflow-y:auto
   }
-  .settings-panel h2{font-size:1rem;margin-bottom:12px}
-  .setting-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
-  .setting-row label{font-size:.75rem;color:var(--subtext)}
-  .setting-row input[type=range]{flex:1;accent-color:var(--accent);height:4px}
-  .setting-row .val{font-size:.7rem;color:var(--accent);min-width:30px;text-align:right}
+  .settings-panel h2{font-size:.95rem;font-weight:600;margin-bottom:14px}
+  .settings-group{margin-bottom:16px}
+  .settings-group>h3{
+    font-size:.7rem;font-weight:700;color:var(--subtext);text-transform:uppercase;
+    letter-spacing:.08em;margin-bottom:10px
+  }
+  .setting-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px}
+  .setting-row:last-child{margin-bottom:0}
+  .setting-row label{font-size:.75rem;color:var(--subtext);flex:none}
+  .setting-row input[type=range]{flex:1;accent-color:var(--accent);height:4px;min-width:80px}
+  .setting-row .val{font-size:.72rem;color:var(--accent-on-surface2);min-width:34px;text-align:right;font-variant-numeric:tabular-nums}
   .setting-row input[type=text]{
-    background:var(--bg);border:1px solid var(--surface2);border-radius:4px;
-    padding:4px 8px;color:var(--text);font-size:.75rem;width:140px
+    background:var(--bg);border:1px solid var(--surface2);border-radius:var(--radius-sm);
+    padding:0 10px;height:34px;color:var(--text);font-size:.75rem;width:150px;
+    font-variant-numeric:tabular-nums
   }
-  .settings-actions{display:flex;gap:8px;margin-top:12px}
-  .settings-actions button{flex:1;padding:8px;border:none;border-radius:6px;font-weight:600;font-size:.8rem;cursor:pointer}
+  .setting-row input[type=text]:focus{border-color:var(--accent);outline:none}
+  .setting-row .help{font-size:.75rem;color:var(--subtext);margin:-6px 0 12px;line-height:1.5}
+  .settings-actions{display:flex;gap:8px;margin-top:4px}
+  .settings-actions button{
+    flex:1;height:40px;border:none;border-radius:var(--radius);font-weight:600;font-size:.8rem;
+    cursor:pointer;transition:filter .12s var(--ease),transform .12s var(--ease)
+  }
+  .settings-actions button:active{transform:translateY(1px)}
   #settings-save{background:var(--accent);color:var(--bg)}
   #settings-close{background:var(--surface2);color:var(--text)}
+  .settings-danger{
+    display:block;width:100%;height:34px;margin-top:10px;
+    background:transparent;border:1px solid var(--surface2);border-radius:var(--radius-sm);
+    color:var(--subtext);font-size:.72rem;cursor:pointer;
+    transition:border-color .12s var(--ease),color .12s var(--ease)
+  }
+  .settings-danger:hover{border-color:var(--red);color:var(--red)}
 
   /* Portrait: info only, no gamepad */
   @media (orientation:portrait){
     .gamepad.show{display:none!important}
-    .rotate-hint{display:block}
+    .rotate-hint{display:flex}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}
   }
 </style>
 </head>
 <body>
 
 <div id="info-overlay">
-  <h1>🎮 Controller Proxy</h1>
-  <div class="sub">Connect to your PC running controller-server</div>
-  <input id="server-addr" type="text" placeholder="ip:port">
-  <div style="display:flex;gap:8px">
-    <button id="connect-btn">Connect</button>
-    <button id="start-btn" disabled>▶ Start</button>
+  <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M7.3 7h9.4a4.5 4.5 0 0 1 4.5 4.5v3a4.5 4.5 0 0 1-4.5 4.5c-1.3 0-2.5-.8-3.2-1.8l-.7-.9a1.6 1.6 0 0 0-2.5 0l-.7.9A3.9 3.9 0 0 1 7.3 19a4.5 4.5 0 0 1-4.5-4.5v-3A4.5 4.5 0 0 1 7.3 7Z"/>
+    <path d="M8 11.5v3M6.5 13h3M15.5 12.5h.01M17.5 14.5h.01"/>
+  </svg>
+  <h1>Controller Proxy</h1>
+  <p class="sub">Scan the code in your server terminal, or type its address.</p>
+  <input id="server-addr" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="192.168.1.20:9449" aria-label="Server address">
+  <div class="overlay-actions">
+    <button id="connect-btn" class="ghost">Connect</button>
+    <button id="start-btn" disabled>Start</button>
   </div>
-  <div id="status">Not connected</div>
-  <div class="rotate-hint">↻ Rotate to landscape for the gamepad</div>
+  <div id="status" role="status" aria-live="polite">Not connected</div>
+  <div class="rotate-hint">
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/></svg>
+    Rotate to landscape for the gamepad
+  </div>
 </div>
 
 <div class="gamepad" id="gamepad">
   <div id="top-pill">
-    <button class="top-btn" id="edit-btn">✎</button>
-    <button class="top-btn" id="menu-btn">☰</button>
-    <button class="top-btn" id="settings-btn">⚙</button>
-    <button class="top-btn" id="fullscreen-btn">⛶</button>
+    <button class="top-btn" id="edit-btn" title="Edit layout" aria-label="Edit layout">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L20 8a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14.5 5.5 18.5 9.5"/></svg>
+    </button>
+    <button class="top-btn" id="menu-btn" title="Hotkeys" aria-label="Hotkeys">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+    </button>
+    <button class="top-btn" id="settings-btn" title="Settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>
+    </button>
+    <button class="top-btn" id="fullscreen-btn" title="Fullscreen" aria-label="Fullscreen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+    </button>
   </div>
 
   <!-- Hotkey menu (collapsible, outside main layout) -->
@@ -222,50 +343,67 @@
   </div>
 
   <!-- Connection info log (small, below menu bar) -->
-  <div id="conn-log"><span id="ping-val">—</span></div>
+  <div id="conn-log"><span class="dot" id="conn-dot"></span><span id="ping-val">--</span></div>
 
   <!-- Controls (positioned by layout config) -->
   <div class="ctrl" data-id="left-stick"  style="left:8%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-zone" id="st-l"><div class="stick-origin" id="st-l-o"></div><div class="stick-knob" id="st-l-k"></div></div></div></div>
   <div class="ctrl" data-id="right-stick" style="left:66%;top:28%;width:26%;height:26%"><div class="ctrl-inner"><div class="stick-zone" id="st-r"><div class="stick-origin" id="st-r-o"></div><div class="stick-knob" id="st-r-k"></div></div></div></div>
 
-  <div class="ctrl" data-id="dpad-up"    style="left:12%;top:48%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_UP">▲</div></div></div>
-  <div class="ctrl" data-id="dpad-down"  style="left:12%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_DOWN">▼</div></div></div>
-  <div class="ctrl" data-id="dpad-left"  style="left:4%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_LEFT">◀</div></div></div>
-  <div class="ctrl" data-id="dpad-right" style="left:20%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_RIGHT">▶</div></div></div>
+  <div class="ctrl" data-id="dpad-up"    style="left:12%;top:48%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_UP"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"/></svg></div></div></div>
+  <div class="ctrl" data-id="dpad-down"  style="left:12%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_DOWN"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg></div></div></div>
+  <div class="ctrl" data-id="dpad-left"  style="left:4%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_LEFT"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></div></div></div>
+  <div class="ctrl" data-id="dpad-right" style="left:20%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn dir" data-code="DPAD_RIGHT"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m10 6 6 6-6 6"/></svg></div></div></div>
 
-  <div class="ctrl" data-id="btn-a" style="left:78%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fa" data-code="A">A</div></div></div>
-  <div class="ctrl" data-id="btn-b" style="left:88%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fb" data-code="B">B</div></div></div>
-  <div class="ctrl" data-id="btn-x" style="left:68%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fx" data-code="X">X</div></div></div>
-  <div class="ctrl" data-id="btn-y" style="left:78%;top:46%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fy" data-code="Y">Y</div></div></div>
+  <div class="ctrl" data-id="btn-a" style="left:78%;top:62%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fa" data-code="A"><span>A</span></div></div></div>
+  <div class="ctrl" data-id="btn-b" style="left:88%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fb" data-code="B"><span>B</span></div></div></div>
+  <div class="ctrl" data-id="btn-x" style="left:68%;top:55%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fx" data-code="X"><span>X</span></div></div></div>
+  <div class="ctrl" data-id="btn-y" style="left:78%;top:46%;width:10%;height:10%"><div class="ctrl-inner"><div class="btn fc fy" data-code="Y"><span>Y</span></div></div></div>
 
   <div class="ctrl" data-id="lb" style="left:12%;top:3%;width:9%;height:6%"><div class="ctrl-inner"><div class="shl" data-code="LB">LB</div></div></div>
   <div class="ctrl" data-id="rb" style="left:79%;top:3%;width:9%;height:6%"><div class="ctrl-inner"><div class="shl" data-code="RB">RB</div></div></div>
-  <div class="ctrl" data-id="lt" style="left:3%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-l"><div class="trg-fill" id="trg-l-fill"></div><span class="trg-lbl">L2</span></div></div></div>
-  <div class="ctrl" data-id="rt" style="left:90%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-r"><div class="trg-fill" id="trg-r-fill"></div><span class="trg-lbl">R2</span></div></div></div>
+  <div class="ctrl" data-id="lt" style="left:3%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-l"><div class="trg-fill" id="trg-l-fill"></div><span class="trg-lbl">LT</span></div></div></div>
+  <div class="ctrl" data-id="rt" style="left:90%;top:3%;width:7%;height:6%"><div class="ctrl-inner"><div class="trg" id="trg-r"><div class="trg-fill" id="trg-r-fill"></div><span class="trg-lbl">RT</span></div></div></div>
 
   <div class="ctrl" data-id="menu-back"   style="left:34%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="BACK">BACK</div></div></div>
-  <div class="ctrl" data-id="menu-guide"  style="left:45%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="GUIDE">◉</div></div></div>
+  <div class="ctrl" data-id="menu-guide"  style="left:45%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="GUIDE"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/></svg></div></div></div>
   <div class="ctrl" data-id="menu-start"  style="left:56%;top:86%;width:9%;height:5%"><div class="ctrl-inner"><div class="m-btn" data-code="START">START</div></div></div>
 
   <div id="edit-bar">
-    <button id="edit-save">Save</button>
+    <span id="edit-hint">Drag to move, corner to resize</span>
     <button id="edit-cancel">Cancel</button>
+    <button id="edit-save">Save</button>
   </div>
 </div>
 
 <div id="settings-overlay">
-  <div class="settings-panel">
-    <h2>Settings</h2>
-    <div class="setting-row"><label>Deadzone</label><input type="range" id="cfg-deadzone" min="0" max="50" value="8"><span class="val" id="cfg-deadzone-v">0.08</span></div>
-    <div class="setting-row"><label>Flush (ms)</label><input type="range" id="cfg-flush" min="2" max="32" value="8"><span class="val" id="cfg-flush-v">8</span></div>
-    <div class="setting-row"><label>Trigger</label><input type="range" id="cfg-trigger" min="50" max="100" value="100"><span class="val" id="cfg-trigger-v">1.0</span></div>
-    <div class="setting-row"><label>Grid</label><input type="range" id="cfg-grid" min="1" max="10" value="5"><span class="val" id="cfg-grid-v">5%</span></div>
-    <div class="setting-row"><label>Server</label><input type="text" id="cfg-addr" value=":9449"></div>
-    <div style="display:flex;gap:8px;margin-bottom:8px">
-      <div style="font-size:.65rem;color:var(--subtext);flex:1">Saved to server config</div>
-      <button id="cfg-reset-layout" style="font-size:.6rem;background:var(--surface2);border:none;border-radius:4px;color:var(--text);padding:2px 8px;cursor:pointer">Reset layout</button>
+  <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+
+    <div class="settings-group">
+      <h3>Sticks and triggers</h3>
+      <div class="setting-row"><label for="cfg-deadzone">Deadzone</label><input type="range" id="cfg-deadzone" min="0" max="50" value="8"><span class="val" id="cfg-deadzone-v">0.08</span></div>
+      <div class="setting-row"><label for="cfg-trigger">Trigger range</label><input type="range" id="cfg-trigger" min="50" max="100" value="100"><span class="val" id="cfg-trigger-v">1.0</span></div>
     </div>
-    <div class="settings-actions"><button id="settings-save">Save</button><button id="settings-close">Done</button></div>
+
+    <div class="settings-group">
+      <h3>Latency</h3>
+      <div class="setting-row"><label for="cfg-flush">Flush interval</label><input type="range" id="cfg-flush" min="2" max="32" value="8"><span class="val" id="cfg-flush-v">8</span></div>
+      <p class="help">Milliseconds between batched axis updates. Lower is snappier and costs more CPU.</p>
+    </div>
+
+    <div class="settings-group">
+      <h3>Layout</h3>
+      <div class="setting-row"><label for="cfg-grid">Snap grid</label><input type="range" id="cfg-grid" min="2" max="10" value="5"><span class="val" id="cfg-grid-v">5%</span></div>
+      <button class="settings-danger" id="cfg-reset-layout">Reset layout to default</button>
+    </div>
+
+    <div class="settings-group">
+      <h3>Server</h3>
+      <div class="setting-row"><label for="cfg-addr">Listen address</label><input type="text" id="cfg-addr" value=":9449"></div>
+      <p class="help">Changing the listen address needs a server restart.</p>
+    </div>
+
+    <div class="settings-actions"><button id="settings-close">Close</button><button id="settings-save">Save</button></div>
   </div>
 </div>
 
@@ -274,26 +412,37 @@
 (function(){
   const input=document.getElementById('server-addr');
   if(location.host)input.value=location.host;
-  document.getElementById('status').textContent='Server: '+location.host;
+  document.getElementById('status').textContent=location.host?'Server: '+location.host:'Not connected';
   setTimeout(()=>{const a=input.value.trim();if(a)connect(a)},400);
 })();
+
+// ---- Pairing token ---------------------------------------------------------
+// The server's QR code opens this page with ?token=... . Remember it so a reload
+// doesn't need the QR code again; every request below carries it.
+const urlToken=new URLSearchParams(location.search).get('token');
+if(urlToken)localStorage.setItem('pairToken',urlToken);
+const TOKEN=urlToken||localStorage.getItem('pairToken')||'';
+function withToken(url){
+  return url+(url.includes('?')?'&':'?')+'token='+encodeURIComponent(TOKEN);
+}
+function api(path,opts){return fetch(withToken(path),opts)}
 
 // ---- WebSocket -------------------------------------------------------------
 let ws=null,connected=false,reconnectTimer=null,connectAddr='';
 const statusEl=document.getElementById('status');
 const startBtn=document.getElementById('start-btn');
-function setStatus(msg,err){statusEl.textContent=msg;statusEl.className=err?'error':''}
-function notify(msg){statusEl.textContent=msg}
+function setStatus(msg,state){statusEl.textContent=msg;statusEl.className=state||''}
 
 function connect(addr){
   if(ws){ws.onclose=null;ws.close()}
   connectAddr=addr;clearTimeout(reconnectTimer);
-  const url=addr.includes('://')?addr:`ws://${addr}/ws`;
-  setStatus('Connecting...');
+  const url=withToken(addr.includes('://')?addr:`ws://${addr}/ws`);
+  setStatus(TOKEN?'Connecting...':'No pairing token. Scan the QR code on the server.',TOKEN?'':'error');
   ws=new WebSocket(url);
   ws.onopen=()=>{
     connected=true;startBtn.disabled=false;
-    setStatus('Connected — rotate to landscape');
+    setStatus('Connected. Rotate to landscape.','ok');
+    setConnState('live');
     loadConfig();loadLayout();
     // If already landscape, show gamepad immediately
     if(window.matchMedia('(orientation:landscape)').matches)showGamepad();
@@ -305,7 +454,7 @@ function connect(addr){
       const m=JSON.parse(ev.data);
       if(m.type==='pong'&&pingSentAt){
         const rtt=Date.now()-pingSentAt;
-        document.getElementById('ping-val').textContent=rtt+'ms';
+        document.getElementById('ping-val').textContent=rtt+' ms';
         pingSentAt=null;
       }
     }catch(_){}
@@ -314,10 +463,12 @@ function connect(addr){
     connected=false;startBtn.disabled=true;
     document.getElementById('gamepad').classList.remove('show');
     document.getElementById('info-overlay').style.display='flex';
-    setStatus('Reconnecting in 3s...',true);
+    setStatus('Connection lost. Retrying in 3 seconds.','error');
+    setConnState('dead');
+    stopPing();
     if(connectAddr)reconnectTimer=setTimeout(()=>connect(connectAddr),3000);
   };
-  ws.onerror=()=>{setStatus('Connection failed',true)};
+  ws.onerror=()=>{setStatus('Could not reach that address, or the pairing token is wrong.','error')};
 }
 document.getElementById('connect-btn').onclick=()=>{const a=document.getElementById('server-addr').value.trim();if(a)connect(a)};
 document.getElementById('server-addr').onkeydown=e=>{if(e.key==='Enter')document.getElementById('connect-btn').click()};
@@ -367,6 +518,11 @@ function kbUp(c){sendKb(c,0)}
 
 // ---- Latency measurement ----------------------------------------------------
 let pingSentAt=null,pingTimer=null;
+function setConnState(state){
+  const dot=document.getElementById('conn-dot');
+  dot.className='dot'+(state?' '+state:'');
+  if(state==='dead')document.getElementById('ping-val').textContent='--';
+}
 function startPing(){
   clearInterval(pingTimer);
   pingTimer=setInterval(()=>{
@@ -376,26 +532,27 @@ function startPing(){
     }
   },2000);
 }
+function stopPing(){clearInterval(pingTimer);pingTimer=null;pingSentAt=null}
 
 // ---- Unified control input + edit drag/resize -----------------------------
 // Each .ctrl wrapper handles BOTH game input AND edit drag/resize.
-// No separate touch handlers on inner elements to avoid conflicts.
+// Edit geometry is in pixels on the lattice (see "Layout engine"). Every move
+// snaps live, so what you see under your finger is what gets saved.
 let isEditing=false;
 const gamepad=document.getElementById('gamepad');
+const TAP_PX=44;                       // smallest comfortable touch target
+const touchById=(list,id)=>{for(const t of list)if(t.identifier===id)return t;return null};
 
 document.querySelectorAll('.ctrl').forEach(el=>{
   el.addEventListener('touchstart',e=>{
     if(isEditing){
       e.preventDefault();
+      const pos=currentLayout[el.dataset.id];if(!pos)return;
       const t=e.changedTouches[0],rect=el.getBoundingClientRect();
-      const cx=t.clientX-rect.left,cy=t.clientY-rect.top;
-      const gp=el.parentElement.getBoundingClientRect();
-      if(cx>rect.width-20&&cy>rect.height-20){
-        el._edit={mode:'resize',sx:t.clientX,sy:t.clientY,gw:gp.width,gh:gp.height,
-          ow:(currentLayout[el.dataset.id]||{}).w||10,oh:(currentLayout[el.dataset.id]||{}).h||10};
-      }else{
-        el._edit={mode:'drag',sx:t.clientX,sy:t.clientY,gw:gp.width,gh:gp.height};
-      }
+      // Bottom-right corner is the resize handle; small controls give it at most half their size.
+      const handle=Math.min(TAP_PX,rect.width/2,rect.height/2);
+      const corner=t.clientX>rect.right-handle&&t.clientY>rect.bottom-handle;
+      el._edit={mode:corner?'resize':'drag',touch:t.identifier,sx:t.clientX,sy:t.clientY,start:pxBox(pos)};
     }else{
       e.preventDefault();
       const btn=el.querySelector('[data-code]');
@@ -404,30 +561,31 @@ document.querySelectorAll('.ctrl').forEach(el=>{
   },{passive:false});
 
   el.addEventListener('touchmove',e=>{
-    if(!el._edit)return;
+    const st=el._edit;if(!st)return;
+    // Track only the finger that started this gesture; other fingers are ignored.
+    const t=touchById(e.changedTouches,st.touch);if(!t)return;
     e.preventDefault();
-    const t=e.changedTouches[0],pos=currentLayout[el.dataset.id];
-    if(!pos)return;
-    if(el._edit.mode==='resize'){
-      pos.w=Math.max(5,Math.min(90,el._edit.ow+(t.clientX-el._edit.sx)/el._edit.gw*100));
-      pos.h=Math.max(5,Math.min(90,el._edit.oh+(t.clientY-el._edit.sy)/el._edit.gh*100));
+    const r=gpRect(),dx=t.clientX-st.sx,dy=t.clientY-st.sy,s=st.start;
+    let b;
+    if(st.mode==='drag'){
+      // Top-left moves in whole cells; size is kept.
+      b={x:clamp(snap(s.x+dx),0,r.width-s.w),y:clamp(snap(s.y+dy),0,r.height-s.h),w:s.w,h:s.h};
     }else{
-      pos.x=Math.max(0,Math.min(100-pos.w,(pos.x||0)+(t.clientX-el._edit.sx)/el._edit.gw*100));
-      pos.y=Math.max(0,Math.min(100-pos.h,(pos.y||0)+(t.clientY-el._edit.sy)/el._edit.gh*100));
-      el._edit.sx=t.clientX;el._edit.sy=t.clientY;
+      // Top-left anchors to the lattice; the bottom-right edge snaps to a lattice line,
+      // so size changes in whole cells as soon as the finger passes the half-cell mark.
+      const L=snap(s.x),T=snap(s.y),min=minCells()*GRID;
+      b={x:L,y:T,
+         w:Math.min(Math.max(min,snap(s.x+s.w+dx)-L),r.width-L),
+         h:Math.min(Math.max(min,snap(s.y+s.h+dy)-T),r.height-T)};
     }
+    currentLayout[el.dataset.id]=pxToPct(b);
     applyLayout(currentLayout);
   },{passive:false});
 
   el.addEventListener('touchend',e=>{
     if(el._edit){
-      const pos=currentLayout[el.dataset.id];
-      if(pos){
-        if(el._edit.mode==='resize'){pos.w=snap(pos.w);pos.h=snap(pos.h)}
-        else{pos.x=snap(pos.x);pos.y=snap(pos.y)}
-        applyLayout(currentLayout);
-      }
-      el._edit=null;return
+      if(touchById(e.changedTouches,el._edit.touch))el._edit=null;
+      return
     }
     const btn=el.querySelector('[data-code]');
     if(btn){btn.classList.remove('active');keyUp(btn.dataset.code)}
@@ -435,7 +593,7 @@ document.querySelectorAll('.ctrl').forEach(el=>{
   el.addEventListener('touchcancel',()=>{el._edit=null;const btn=el.querySelector('[data-code]');if(btn)btn.classList.remove('active')});
 });
 
-// ---- Sticks — zone-based: touch anywhere in the rect, press point is center --
+// ---- Sticks: zone-based. Touch anywhere in the rect, press point is center. ----
 // Tap (quick press-release, no drag) = stick click (L3/R3).
 function setupStick(zId, oId, kId, ax, ay, clickCode){
   const zone=document.getElementById(zId),dot=document.getElementById(oId),knob=document.getElementById(kId);
@@ -447,7 +605,7 @@ function setupStick(zId, oId, kId, ax, ay, clickCode){
     knob.style.left=(ox+dx*mr)+'px';knob.style.top=(oy+dy*mr)+'px';
     send('abs',ax,dx);send('abs',ay,dy);
   }
-  function center(){activeId=null;dot.classList.remove('show');knob.classList.remove('show');send('abs',ax,0);send('abs',ay,0);}
+  function center(){activeId=null;dot.classList.remove('show');knob.classList.remove('show');zone.classList.remove('active');send('abs',ax,0);send('abs',ay,0);}
   zone.addEventListener('touchstart',e=>{
     if(isEditing)return;e.preventDefault();
     const t=e.changedTouches[0],r=zone.getBoundingClientRect();
@@ -455,6 +613,7 @@ function setupStick(zId, oId, kId, ax, ay, clickCode){
     t0=Date.now();moved=false;
     dot.style.left=ox+'px';dot.style.top=oy+'px';dot.classList.add('show');
     knob.style.left=ox+'px';knob.style.top=oy+'px';knob.classList.add('show');
+    zone.classList.add('active');
     send('abs',ax,0);send('abs',ay,0);
   },{passive:false});
   zone.addEventListener('touchmove',e=>{
@@ -480,8 +639,10 @@ function setupTrigger(eId,fId,code){
   let activeId=null;
   function upd(cy){
     const r=el.getBoundingClientRect();
-    fill.style.height=(Math.max(0,Math.min(1,1-(cy-r.top)/r.height))*100)+'%';
-    send('abs',code,Math.max(0,Math.min(1,1-(cy-r.top)/r.height)));
+    const v=Math.max(0,Math.min(1,1-(cy-r.top)/r.height));
+    fill.style.height=(v*100)+'%';
+    el.classList.toggle('active',v>0.01);
+    send('abs',code,v);
   }
   el.addEventListener('touchstart',e=>{if(isEditing)return;e.preventDefault();activeId=e.changedTouches[0].identifier;upd(e.changedTouches[0].clientY)});
   el.addEventListener('touchmove',e=>{if(isEditing)return;e.preventDefault();if(activeId===null)return;for(let t of e.changedTouches){if(t.identifier===activeId){upd(t.clientY);break}}});
@@ -522,14 +683,40 @@ const defaultLayout={
   "menu-start":  {x:56,y:86,w:9,h:5},
 };
 let currentLayout={};
-let GRID=5;
+// One lattice drives the visible grid, drag snapping and resize snapping.
+// Pitch is GRID px, a square lattice anchored at the gamepad's top-left.
+// The slider is a percentage of the shorter viewport axis, so cells stay square
+// on any device. Layout stores percentages, so positions re-map on rotation.
+let GRIDPCT=5;
+let GRID=20;
 
-function setGrid(n){
-  GRID=n;
-  document.getElementById('gamepad').style.backgroundSize=n+'% '+n+'%';
+function gridPx(){
+  const r=gpRect();
+  return Math.max(8,Math.round(Math.min(r.width,r.height)*GRIDPCT/100));
+}
+function setGrid(pct){
+  GRIDPCT=pct;
+  GRID=gridPx();
+  gamepad.style.setProperty('--gridpx',GRID+'px');
+}
+const gpRect=()=>gamepad.getBoundingClientRect();
+const snap=v=>Math.round(v/GRID)*GRID;
+const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+// Smallest control size in whole cells that still meets the touch floor.
+const minCells=()=>Math.max(2,Math.ceil(TAP_PX/GRID));
+// Percent layout <-> pixel box conversions.
+function pxBox(pos){
+  const r=gpRect();
+  return{x:(pos.x||0)/100*r.width,y:(pos.y||0)/100*r.height,
+         w:(pos.w||pos.size||10)/100*r.width,h:(pos.h||pos.size||10)/100*r.height};
+}
+function pxToPct(b){
+  const r=gpRect();
+  return{x:b.x/r.width*100,y:b.y/r.height*100,w:b.w/r.width*100,h:b.h/r.height*100};
 }
 
-function snap(v){return Math.round(v/GRID)*GRID}
+// Keep the square pitch correct through rotation and resize.
+window.addEventListener('resize',()=>setGrid(GRIDPCT));
 
 function applyLayout(layout){
   for(const[id,pos]of Object.entries(layout)){
@@ -543,10 +730,15 @@ function applyLayout(layout){
 }
 
 function loadLayout(){
-  fetch('/api/layout').then(r=>r.json()).then(data=>{
+  api('/api/layout').then(r=>r.json()).then(data=>{
     if(data&&Object.keys(data).length>0){
       currentLayout=data;
-      if(data._grid)setGrid(data._grid);
+      // Grid below 2% makes the lattice too fine to snap to; fall back to the default.
+      const g=parseInt(data._grid,10);
+      setGrid(Number.isFinite(g)&&g>=2?g:5);
+      currentLayout._grid=GRIDPCT;
+      document.getElementById('cfg-grid').value=GRIDPCT;
+      document.getElementById('cfg-grid-v').textContent=GRID+'px';
     }else{
       currentLayout=Object.assign({},defaultLayout);
     }
@@ -555,10 +747,24 @@ function loadLayout(){
 }
 
 // ---- Edit mode -------------------------------------------------------------
+// editSnapshot holds the saved layout so Cancel can undo in-progress drags.
+let editSnapshot=null;
+function setEditing(on){
+  isEditing=on;
+  gamepad.classList.toggle('edit-mode',on);
+  document.getElementById('edit-btn').classList.toggle('active',on);
+}
+function cancelEdit(){
+  if(editSnapshot)currentLayout=editSnapshot;
+  editSnapshot=null;
+  applyLayout(currentLayout);
+  setEditing(false);
+}
+// Toggling edit off from the toolbar is the same as Cancel.
 document.getElementById('edit-btn').onclick=()=>{
-  isEditing=!isEditing;
-  gamepad.classList.toggle('edit-mode',isEditing);
-  document.getElementById('edit-btn').classList.toggle('active',isEditing);
+  if(isEditing){cancelEdit();return}
+  editSnapshot=JSON.parse(JSON.stringify(currentLayout));
+  setEditing(true);
 };
 
 // ---- Hotkey menu -----------------------------------------------------------
@@ -576,22 +782,18 @@ document.getElementById('hk-f12').addEventListener('touchend',e=>{
   e.preventDefault();e.stopPropagation();
   const b=e.currentTarget;b.classList.remove('active');kbUp('F12');
 },{passive:false});
-document.getElementById('edit-cancel').onclick=()=>{
-  applyLayout(currentLayout);
-  gamepad.classList.remove('edit-mode');
-  document.getElementById('edit-btn').classList.remove('active');
-  isEditing=false;
-};
+document.getElementById('edit-cancel').onclick=cancelEdit;
 document.getElementById('edit-save').onclick=()=>{
-  fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
-    .then(r=>r.json()).then(r=>{if(r.status==='saved'){gamepad.classList.remove('edit-mode');document.getElementById('edit-btn').classList.remove('active');isEditing=false}})
+  currentLayout._grid=GRIDPCT;
+  api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)})
+    .then(r=>r.json()).then(r=>{if(r.status==='saved'){editSnapshot=null;setEditing(false)}})
     .catch(()=>{});
 };
 
 // ---- Settings --------------------------------------------------------------
 const cfgOverlay=document.getElementById('settings-overlay');
 function loadConfig(){
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{
+  api('/api/config').then(r=>r.json()).then(cfg=>{
     document.getElementById('cfg-deadzone').value=Math.round(cfg.stick_deadzone*100);
     document.getElementById('cfg-deadzone-v').textContent=cfg.stick_deadzone.toFixed(2);
     document.getElementById('cfg-flush').value=cfg.flush_interval_ms;
@@ -599,8 +801,8 @@ function loadConfig(){
     document.getElementById('cfg-trigger').value=Math.round(cfg.trigger_threshold*100);
     document.getElementById('cfg-trigger-v').textContent=cfg.trigger_threshold.toFixed(1);
     document.getElementById('cfg-addr').value=cfg.listen;
-    document.getElementById('cfg-grid').value=GRID;
-    document.getElementById('cfg-grid-v').textContent=GRID+'%';
+    document.getElementById('cfg-grid').value=GRIDPCT;
+    document.getElementById('cfg-grid-v').textContent=GRID+'px';
   }).catch(()=>{});
 }
 document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
@@ -609,14 +811,14 @@ document.querySelectorAll('.setting-row input[type=range]').forEach(el=>{
     if(el.id==='cfg-deadzone')v.textContent=(el.value/100).toFixed(2);
     else if(el.id==='cfg-flush')v.textContent=el.value;
     else if(el.id==='cfg-trigger')v.textContent=(el.value/100).toFixed(1);
-    else if(el.id==='cfg-grid'){v.textContent=el.value+'%';setGrid(parseInt(el.value))}
+    else if(el.id==='cfg-grid'){setGrid(parseInt(el.value));v.textContent=GRID+'px'}
   });
 });
 document.getElementById('settings-btn').onclick=()=>{loadConfig();cfgOverlay.classList.add('open')};
 document.getElementById('settings-close').onclick=()=>cfgOverlay.classList.remove('open');
 document.getElementById('settings-save').onclick=()=>{
   // Save server config
-  fetch('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+  api('/api/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     stick_deadzone:parseFloat(document.getElementById('cfg-deadzone').value)/100,
     flush_interval_ms:parseInt(document.getElementById('cfg-flush').value),
     trigger_threshold:parseFloat(document.getElementById('cfg-trigger').value)/100,
@@ -625,15 +827,16 @@ document.getElementById('settings-save').onclick=()=>{
     if(r.status==='saved'){
       // Save grid to layout.json
       currentLayout._grid=parseInt(document.getElementById('cfg-grid').value);
-      fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)}).catch(()=>{});
+      api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(currentLayout)}).catch(()=>{});
       cfgOverlay.classList.remove('open');
     }
   }).catch(()=>{});
 };
 document.getElementById('cfg-reset-layout').onclick=()=>{
+  if(!confirm('Reset all controls to the default layout? Your saved layout will be overwritten.'))return;
   currentLayout=Object.assign({},defaultLayout);
   applyLayout(currentLayout);
-  fetch('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(defaultLayout)}).catch(()=>{});
+  api('/api/layout',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(defaultLayout)}).catch(()=>{});
 };
 cfgOverlay.addEventListener('click',e=>{if(e.target===cfgOverlay)cfgOverlay.classList.remove('open')});
 </script>

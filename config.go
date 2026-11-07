@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -10,11 +11,36 @@ import (
 )
 
 type config struct {
-	ListenAddr     string
-	FlushInterval  time.Duration
-	StickDeadzone  float64
-	TriggerMax     float64
+	ListenAddr    string
+	FlushInterval time.Duration
+	StickDeadzone float64
+	TriggerMax    float64
+	AuthToken     string
 }
+
+// Allowed ranges. Out-of-range values are clamped rather than rejected so a
+// hand-edited .env still starts the server.
+const (
+	minFlushMs    = 1
+	maxFlushMs    = 32
+	maxDeadzone   = 0.5
+	minTriggerMax = 0.1
+)
+
+func clampFlush(d time.Duration) time.Duration {
+	ms := d.Milliseconds()
+	if ms < minFlushMs {
+		return minFlushMs * time.Millisecond
+	}
+	if ms > maxFlushMs {
+		return maxFlushMs * time.Millisecond
+	}
+	return d
+}
+
+func clampDeadzone(f float64) float64 { return math.Max(0, math.Min(maxDeadzone, f)) }
+
+func clampTrigger(f float64) float64 { return math.Max(minTriggerMax, math.Min(1, f)) }
 
 func loadConfig() config {
 	cfg := config{
@@ -28,9 +54,10 @@ func loadConfig() config {
 	loadDotenv(".env")
 
 	cfg.ListenAddr = envStr("LISTEN", cfg.ListenAddr)
-	cfg.FlushInterval = envDuration("FLUSH_INTERVAL_MS", cfg.FlushInterval)
-	cfg.StickDeadzone = envFloat("STICK_DEADZONE", cfg.StickDeadzone)
-	cfg.TriggerMax = envFloat("TRIGGER_THRESHOLD", cfg.TriggerMax)
+	cfg.FlushInterval = clampFlush(envDuration("FLUSH_INTERVAL_MS", cfg.FlushInterval))
+	cfg.StickDeadzone = clampDeadzone(envFloat("STICK_DEADZONE", cfg.StickDeadzone))
+	cfg.TriggerMax = clampTrigger(envFloat("TRIGGER_THRESHOLD", cfg.TriggerMax))
+	cfg.AuthToken = envStr("AUTH_TOKEN", "")
 
 	return cfg
 }

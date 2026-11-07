@@ -25,8 +25,8 @@ jobs:
       - name: Build
         run: |
           mkdir -p dist
-          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-linux-amd64   .
-          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w" -o dist/virtual-controller-linux-arm64   .
+          GOOS=linux   GOARCH=amd64 go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/virtual-controller-linux-amd64   .
+          GOOS=linux   GOARCH=arm64 go build -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o dist/virtual-controller-linux-arm64   .
           # GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-windows-amd64.exe .
           # GOOS=darwin  GOARCH=amd64 go build -ldflags="-s -w" -o dist/virtual-controller-darwin-amd64  .
           # GOOS=darwin  GOARCH=arm64 go build -ldflags="-s -w" -o dist/virtual-controller-darwin-arm64  .
